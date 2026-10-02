@@ -1,7 +1,74 @@
 .page {
-  padding: 24rpx 16rpx 60rpx;
+  height: 100vh;
+  padding: 20rpx 16rpx 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+/*
+  可滚动区：状态 + 控制按钮 + Tab 内容整体滚动。
+  棋盘是它上面唯一固定的元素，所以划动时棋盘始终留在上半屏。
+*/
+.body {
+  flex: 1;
+  min-height: 0;
+}
+
+/* 滚回顶部用的锚点（切换 Tab 时改变 id 即可重新触发滚动） */
+.anchor {
+  height: 0;
+}
+
+/* 分析触发行：深度选择 + PV走法（位于「引擎分析」Tab 内） */
+.analyze-bar {
+  margin: 4rpx 0 20rpx;
+  align-items: center;
+}
+
+/* Tab 栏：钉在底部，不参与滚动 */
+.tabs {
+  flex-shrink: 0;
+  display: flex;
+  margin: 14rpx 0 22rpx;
+  background-color: #141922;
+  border: 2rpx solid #2d3548;
+  border-radius: 16rpx;
+  overflow: hidden;
+}
+
+.tab {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 72rpx;
+  padding: 0 6rpx;
+  font-size: 23rpx;
+  color: #8d96ad;
+  border-right: 2rpx solid #2d3548;
+}
+
+.tab:last-child {
+  border-right: none;
+}
+
+.tab-active {
+  background-color: #f0b232;
+  color: #241c07;
+  font-weight: 600;
+}
+
+.tab-label {
+  line-height: 1.2;
+  text-align: center;
+}
+
+/* Tab 内容与状态、控制按钮同属一个滚动区，这里不再单独滚动 */
+
+.footnotes {
+  padding: 22rpx 8rpx 36rpx;
 }
 
 /* ------------------------------------------------------------ FEN 卡片 */
@@ -180,12 +247,17 @@
   margin-top: 24rpx;
 }
 
+.status-line {
+  align-items: center;
+}
+
 .turn-dot {
-  width: 20rpx;
-  height: 20rpx;
+  width: 18rpx;
+  height: 18rpx;
   border-radius: 50%;
-  margin-right: 14rpx;
+  margin-right: 12rpx;
   border: 3rpx solid #0f1118;
+  flex-shrink: 0;
 }
 
 .turn-dot.w {
@@ -199,38 +271,6 @@
 .status-text {
   font-size: 28rpx;
   font-weight: 600;
-}
-
-.evalbar {
-  position: relative;
-  height: 16rpx;
-  margin-top: 20rpx;
-  border-radius: 999rpx;
-  background-color: #2a3144;
-  overflow: hidden;
-}
-
-.evalbar-white {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  background-color: #eef1f7;
-  transition: width 260ms ease;
-}
-
-.evalbar-mid {
-  position: absolute;
-  left: 50%;
-  top: 0;
-  bottom: 0;
-  width: 2rpx;
-  background-color: rgba(15, 17, 24, 0.55);
-}
-
-.evalbar-meta {
-  margin-top: 14rpx;
-  align-items: center;
 }
 
 .eval-value {
@@ -275,8 +315,9 @@
 
 /* ------------------------------------------------------------ 分析面板 */
 
-.card + .card {
-  margin-top: 24rpx;
+/* 滚动区内的卡片：上下留白由卡片自身给，整体跟着划动 */
+.card {
+  margin: 24rpx 0 0;
 }
 
 .head {
@@ -429,7 +470,8 @@
 /* ------------------------------------------------------------ 走子记录 */
 
 .moves {
-  max-height: 380rpx;
+  /* 列表随 Tab 内容一起滚动，不在内部再套一层滚动 */
+  margin-top: 8rpx;
 }
 
 .move-row {
@@ -472,9 +514,8 @@
 }
 
 .log-box {
+  /* 日志随页面一起滚动，内部不再套一层滚动条 */
   margin-top: 12rpx;
-  max-height: 520rpx;
-  overflow: auto;
   padding: 12rpx 16rpx;
   border-radius: 12rpx;
   background-color: #12161f;

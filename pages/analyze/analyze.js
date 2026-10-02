@@ -67,13 +67,31 @@ Page({
     debugOpen: false,
     debugRows: [],
     debugCount: 0,
-    debugEnabled: false
+    debugEnabled: false,
+    /**
+     * 布局：棋盘固定在屏幕上方（唯一不滚动的元素），
+     * 状态/控制按钮与 Tab 内容同属一个滚动区，Tab 栏钉在底部。
+     * Tab：引擎分析（含深度选择与「PV走法」）/ AI教练点评 / 走子记录 / 运行日志 / 局面。
+     */
+    tabs: [
+      { key: 'fen', label: '局面' },
+      { key: 'engine', label: '引擎分析' },
+      { key: 'coach', label: 'AI教练点评' },
+      { key: 'moves', label: '走子记录' },
+      { key: 'log', label: '运行日志' }
+    ],
+    activeTabKey: 'engine',
+    /** 滚动区回到顶部用的锚点 id，切换 Tab 时换成新值即可滚回顶部 */
+    tabAnchor: 'tab-top-engine'
   },
 
   /* ------------------------------------------------------------ 生命周期 */
 
   onLoad() {
-    const metrics = boardModel.boardMetrics(device.getWindowWidth())
+    const metrics = boardModel.boardMetrics(
+      device.getWindowWidth(),
+      Math.floor(device.getWindowHeight() * 0.5)
+    )
 
     this.game = new Game(START_FEN)
     this.hint = null
@@ -418,6 +436,15 @@ Page({
       ghost: null
     })
     this.syncAll()
+  },
+
+  /* --------------------------------------------------------------- Tabs */
+
+  /** 切换底部 Tab；同时把滚动区回到顶部，免得停在上一屏的位置 */
+  onSwitchTab(e) {
+    const key = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.tab : ''
+    if (!key || key === this.data.activeTabKey) return
+    this.setData({ activeTabKey: key, tabAnchor: 'tab-top-' + key })
   },
 
   /* --------------------------------------------------------------- FEN */

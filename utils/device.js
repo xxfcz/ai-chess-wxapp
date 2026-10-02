@@ -7,6 +7,8 @@
  */
 
 const FALLBACK_WIDTH = 375
+// 拿不到真实高度时，用一台常见机型的高度兜底，保证棋盘尺寸计算不会把棋盘撑太大
+const FALLBACK_HEIGHT = 812
 
 function isPositive(value) {
   return typeof value === 'number' && isFinite(value) && value > 0
@@ -48,6 +50,42 @@ function getWindowWidth() {
   return FALLBACK_WIDTH
 }
 
+/** 屏幕可视高度（CSS 像素）；与宽度一样逐级降级，缺值时用典型机型高度兜底 */
+function getWindowHeight() {
+  try {
+    if (typeof wx !== 'undefined' && typeof wx.getWindowInfo === 'function') {
+      const info = wx.getWindowInfo()
+      if (info && isPositive(info.windowHeight)) return info.windowHeight
+    }
+  } catch (e) {
+    // 低版本基础库没有 getWindowInfo
+  }
+
+  try {
+    if (typeof wx !== 'undefined' && typeof wx.getSystemInfoSync === 'function') {
+      const info = wx.getSystemInfoSync()
+      if (info && isPositive(info.windowHeight)) return info.windowHeight
+    }
+  } catch (e) {
+    // 同上，继续降级
+  }
+
+  try {
+    if (typeof window !== 'undefined' && isPositive(window.innerHeight)) return window.innerHeight
+  } catch (e) {
+    // 非浏览器环境
+  }
+
+  try {
+    const el = typeof document !== 'undefined' ? document.documentElement : null
+    if (el && isPositive(el.clientHeight)) return el.clientHeight
+  } catch (e) {
+    // 非浏览器环境
+  }
+
+  return FALLBACK_HEIGHT
+}
+
 /** 轻提示；环境不支持时只在控制台留痕，绝不因为提示本身报错 */
 function toast(title) {
   try {
@@ -80,4 +118,4 @@ function canRequest() {
   }
 }
 
-module.exports = { getWindowWidth, toast, canRequest, FALLBACK_WIDTH }
+module.exports = { getWindowWidth, getWindowHeight, toast, canRequest, FALLBACK_WIDTH, FALLBACK_HEIGHT }

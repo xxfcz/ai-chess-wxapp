@@ -24,6 +24,12 @@
 ```
 app.js / app.json / app.wxss      小程序入口；app.json 顶层必须保留 lazyCodeLoading
 pages/analyze/                    唯一页面：analyze.{js,wxml,wxss,json}
+                                  布局：唯一的固定元素是棋盘（view 网格，留在上半屏），
+                                  状态/控制按钮与 Tab 内容同属一个 scroll-view 整体划动（Tab 内部不再各自滚动），
+                                  底部 Tab 栏钉住：局面 / 引擎分析（内含深度选择与「PV走法」）/ AI教练点评 /
+                                  走子记录 / 运行日志。FEN 载入在「局面」Tab（最左）内。
+                                  状态条已压成单行、优势只显示数值（不画进度条）。
+                                  棋盘尺寸按窗口高度约一半做上限，保证留在上半屏。
 utils/
   chess.js                         chess.js 0.10.3 本地副本 + 末尾追加 raw_* 扩展（见 §5）
   engine.js                       端上 Alpha-Beta 引擎，analyze() 是对外契约（见 §4）

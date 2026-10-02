@@ -1,28 +1,6 @@
 <view class="page">
 
-  <!-- FEN 初始化 -->
-  <view class="card">
-    <view class="section-title">FEN 局面</view>
-    <view class="row fen-row">
-      <input
-        class="fen-input"
-        value="{{fenInput}}"
-        placeholder="粘贴 FEN，例如 rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
-        placeholder-class="fen-placeholder"
-        confirm-type="done"
-        bindinput="onFenInput"
-        bindconfirm="onLoadFen"
-      />
-      <view class="btn primary" bindtap="onLoadFen">载入</view>
-    </view>
-    <view class="row fen-actions">
-      <view class="chip" bindtap="onUseStartFen">填入初始局面</view>
-      <view class="gap"></view>
-      <text class="muted tiny">{{fenHint}}</text>
-    </view>
-  </view>
-
-  <!-- 棋盘：8×8 视图网格，棋子为格内字形 -->
+  <!-- 棋盘：固定在上半屏，不随下方内容滚动，划动时始终可见 -->
   <view class="board-wrap" style="width:{{boardSize}}px;height:{{boardSize}}px;">
     <view
       class="grid"
@@ -65,131 +43,170 @@
     </view>
   </view>
 
-  <!-- 状态 -->
-  <view class="card status-card">
-    <view class="row">
-      <view class="turn-dot {{turnClass}}"></view>
-      <text class="status-text tone-{{statusTone}}">{{statusLabel}}</text>
-      <view class="gap"></view>
-      <text class="muted tiny">{{flipped ? '黑方视角' : '白方视角'}}</text>
-    </view>
-    <view class="evalbar">
-      <view class="evalbar-white" style="width:{{evalPercent}}%;"></view>
-      <view class="evalbar-mid"></view>
-    </view>
-    <view class="row evalbar-meta">
-      <text class="muted tiny">白方优势 {{evalPercent}}%</text>
-      <view class="gap"></view>
-      <text class="eval-value">{{evalLabel}}</text>
-    </view>
-    <view wx:if="{{terminalLabel}}" class="banner">{{terminalLabel}}</view>
-  </view>
+  <!--
+    可滚动区：状态、控制按钮与 Tab 内容作为整体一起划动（红框部分不再钉住），
+    Tab 内部不再各自滚动。切换 Tab 时靠锚点滚回顶部。
+  -->
+  <scroll-view scroll-y class="body" scroll-into-view="{{tabAnchor}}">
+    <view id="{{tabAnchor}}" class="anchor"></view>
 
-  <!-- 历史控制 -->
-  <view class="row controls">
-    <view class="btn {{canUndo ? '' : 'disabled'}}" bindtap="onUndo">后退</view>
-    <view class="btn {{canRedo ? '' : 'disabled'}}" bindtap="onRedo">前进</view>
-    <view class="btn" bindtap="onReset">重置</view>
-    <view class="btn" bindtap="onFlip">翻转</view>
-  </view>
-
-  <!-- 引擎分析 -->
-  <view class="card">
-    <view class="row head">
-      <text class="section-title">引擎分析 · 三条最佳路线</text>
-      <view class="gap"></view>
-      <picker range="{{depthOptions}}" value="{{depthIndex}}" bindchange="onDepthChange">
-        <view class="chip">深度 {{depthOptions[depthIndex]}}</view>
-      </picker>
-      <view class="btn primary small {{analyzing ? 'disabled' : ''}}" bindtap="onAnalyze">{{analyzing ? '分析中' : 'AI 分析'}}</view>
+    <!-- 状态：单行显示，不画进度条，优势只给数值 -->
+    <view class="card status-card">
+      <view class="row status-line">
+        <view class="turn-dot {{turnClass}}"></view>
+        <text class="status-text tone-{{statusTone}}">{{statusLabel}}</text>
+        <text class="muted tiny">{{flipped ? '黑方视角' : '白方视角'}}</text>
+        <view class="gap"></view>
+        <text class="muted tiny">白方优势</text>
+        <text class="eval-value">{{evalLabel}}</text>
+      </view>
+      <view wx:if="{{terminalLabel}}" class="banner">{{terminalLabel}}</view>
     </view>
 
-    <view wx:if="{{analysisLines.length}}" class="lines">
-      <view
-        wx:for="{{analysisLines}}"
-        wx:key="key"
-        class="line {{item.active ? 'line-active' : ''}}"
-        data-index="{{item.idx}}"
-        bindtap="onPreviewLine"
-      >
-        <view class="line-rank rank-{{item.rank}}">{{item.rank}}</view>
-        <view class="line-body">
-          <view class="row">
-            <text class="line-san">{{item.san}}</text>
-            <view class="gap"></view>
-            <text class="line-score tone-{{item.tone}}">{{item.scoreText}}</text>
+    <!-- 历史控制 -->
+    <view class="row controls">
+      <view class="btn {{canUndo ? '' : 'disabled'}}" bindtap="onUndo">后退</view>
+      <view class="btn {{canRedo ? '' : 'disabled'}}" bindtap="onRedo">前进</view>
+      <view class="btn" bindtap="onReset">重置</view>
+      <view class="btn" bindtap="onFlip">翻转</view>
+    </view>
+
+    <!-- 引擎分析 · 三条最佳路线（深度选择与「PV走法」就放在这个 Tab 里） -->
+    <view wx:if="{{activeTabKey === 'engine'}}" class="card">
+      <view class="section-title">引擎分析 · 三条最佳路线</view>
+
+      <view class="row analyze-bar">
+        <picker range="{{depthOptions}}" value="{{depthIndex}}" bindchange="onDepthChange">
+          <view class="chip">深度 {{depthOptions[depthIndex]}}</view>
+        </picker>
+        <view class="gap"></view>
+        <view class="btn primary {{analyzing ? 'disabled' : ''}}" bindtap="onAnalyze">{{analyzing ? '分析中' : 'PV走法'}}</view>
+      </view>
+
+      <view wx:if="{{analysisLines.length}}" class="lines">
+        <view
+          wx:for="{{analysisLines}}"
+          wx:key="key"
+          class="line {{item.active ? 'line-active' : ''}}"
+          data-index="{{item.idx}}"
+          bindtap="onPreviewLine"
+        >
+          <view class="line-rank rank-{{item.rank}}">{{item.rank}}</view>
+          <view class="line-body">
+            <view class="row">
+              <text class="line-san">{{item.san}}</text>
+              <view class="gap"></view>
+              <text class="line-score tone-{{item.tone}}">{{item.scoreText}}</text>
+            </view>
+            <text class="line-pv">{{item.pvText}}</text>
           </view>
-          <text class="line-pv">{{item.pvText}}</text>
+        </view>
+        <text class="muted tiny">点击任一路线，可在棋盘上预览该走法。</text>
+      </view>
+      <view wx:elif="{{analysisError}}" class="error">{{analysisError}}</view>
+      <view wx:else class="muted tiny">走子后会自动分析，也可以点上方「PV走法」立即计算。</view>
+
+      <view wx:if="{{analysisMeta}}" class="row meta">
+        <text class="muted tiny">{{analysisMeta}}</text>
+      </view>
+    </view>
+
+    <!-- 云端 AI 教练点评 -->
+    <view wx:if="{{activeTabKey === 'coach'}}" class="card">
+      <view class="row head">
+        <text class="section-title">AI 教练点评</text>
+        <view class="gap"></view>
+        <view wx:if="{{commenting}}" class="btn small" bindtap="onCoach">取消生成</view>
+        <view wx:else class="btn small {{cloudReady ? '' : 'disabled'}}" bindtap="onCoach">生成点评</view>
+      </view>
+      <text wx:if="{{coachText}}" class="coach-text">{{coachText}}</text>
+      <text wx:elif="{{commenting}}" class="muted tiny">{{commentingHint}}</text>
+      <text wx:elif="{{coachError}}" class="error">{{coachError}}</text>
+      <text wx:elif="{{cloudHint}}" class="muted tiny">{{cloudHint}}</text>
+      <text wx:else class="muted tiny">基于当前局面与三条候选路线，由云端大模型给出中文讲解。</text>
+      <text wx:if="{{coachModel && coachText}}" class="muted tiny">本条点评由云端模型 {{coachModel}} 生成。</text>
+      <text wx:if="{{coachDetail}}" class="tech-detail">{{coachDetail}}</text>
+    </view>
+
+    <!-- 走子记录 -->
+    <view wx:if="{{activeTabKey === 'moves'}}" class="card">
+      <view class="row head">
+        <text class="section-title">走子记录（SAN）</text>
+        <view class="gap"></view>
+        <text class="muted tiny">共 {{moveCount}} 步</text>
+      </view>
+      <view wx:if="{{moveRows.length}}" class="moves">
+        <view wx:for="{{moveRows}}" wx:key="key" class="move-row" id="mv{{item.no}}">
+          <text class="move-no">{{item.no}}.</text>
+          <text class="move-san">{{item.white}}</text>
+          <text class="move-san">{{item.black}}</text>
         </view>
       </view>
-      <text class="muted tiny">点击任一路线，可在棋盘上预览该走法。</text>
+      <text wx:else class="muted tiny">还没有走子记录，拖动棋子开始对弈。</text>
     </view>
-    <view wx:elif="{{analysisError}}" class="error">{{analysisError}}</view>
-    <view wx:else class="muted tiny">走子后会自动分析，也可以点「AI 分析」立即计算。</view>
 
-    <view wx:if="{{analysisMeta}}" class="row meta">
-      <text class="muted tiny">{{analysisMeta}}</text>
-    </view>
-  </view>
-
-  <!-- 云端 AI 教练点评 -->
-  <view class="card">
-    <view class="row head">
-      <text class="section-title">AI 教练点评</text>
-      <view class="gap"></view>
-      <view wx:if="{{commenting}}" class="btn small" bindtap="onCoach">取消生成</view>
-      <view wx:else class="btn small {{cloudReady ? '' : 'disabled'}}" bindtap="onCoach">生成点评</view>
-    </view>
-    <text wx:if="{{coachText}}" class="coach-text">{{coachText}}</text>
-    <text wx:elif="{{commenting}}" class="muted tiny">{{commentingHint}}</text>
-    <text wx:elif="{{coachError}}" class="error">{{coachError}}</text>
-    <text wx:elif="{{cloudHint}}" class="muted tiny">{{cloudHint}}</text>
-    <text wx:else class="muted tiny">基于当前局面与三条候选路线，由云端大模型给出中文讲解。</text>
-    <text wx:if="{{coachModel && coachText}}" class="muted tiny">本条点评由云端模型 {{coachModel}} 生成。</text>
-    <text wx:if="{{coachDetail}}" class="tech-detail">{{coachDetail}}</text>
-  </view>
-
-  <!-- 走子记录 -->
-  <view class="card">
-    <view class="row head">
-      <text class="section-title">走子记录（SAN）</text>
-      <view class="gap"></view>
-      <text class="muted tiny">共 {{moveCount}} 步</text>
-    </view>
-    <scroll-view wx:if="{{moveRows.length}}" scroll-y class="moves" scroll-into-view="{{movesAnchor}}" scroll-with-animation>
-      <view wx:for="{{moveRows}}" wx:key="key" class="move-row" id="mv{{item.no}}">
-        <text class="move-no">{{item.no}}.</text>
-        <text class="move-san">{{item.white}}</text>
-        <text class="move-san">{{item.black}}</text>
+    <!-- 运行日志：预览面板没有可翻看的控制台，真机也看不到 console，就把日志放到界面上 -->
+    <view wx:if="{{activeTabKey === 'log'}}" class="card">
+      <view class="row head">
+        <text class="section-title">运行日志</text>
+        <view class="gap"></view>
+        <view class="btn small" bindtap="onToggleDebug">{{debugOpen ? '收起' : '展开'}}</view>
       </view>
-    </scroll-view>
-    <text wx:else class="muted tiny">还没有走子记录，拖动棋子开始对弈。</text>
-  </view>
-
-  <!-- 运行日志：预览面板没有可翻看的控制台，真机也看不到 console，就把日志放到界面上 -->
-  <view class="card">
-    <view class="row head">
-      <text class="section-title">运行日志</text>
-      <view class="gap"></view>
-      <view class="btn small" bindtap="onToggleDebug">{{debugOpen ? '收起' : '展开'}}</view>
-    </view>
-    <text wx:if="{{!debugOpen}}" class="muted tiny">出错时把这里的内容复制出来，就能看到失败在哪一步（共 {{debugCount}} 条）。</text>
-    <view wx:if="{{debugOpen}}" class="log-actions">
-      <view class="btn small" bindtap="onCopyDebug">复制全部</view>
-      <view class="btn small" bindtap="onClearDebug">清空</view>
-      <view class="btn small" bindtap="onToggleEnableDebug">{{debugEnabled ? '关闭真机调试面板' : '打开真机调试面板'}}</view>
-    </view>
-    <view wx:if="{{debugOpen}}" class="log-box">
-      <view wx:for="{{debugRows}}" wx:key="key" class="log-row">
-        <text class="log-time">{{item.time}}</text>
-        <text class="log-level level-{{item.level}}">{{item.level}}</text>
-        <text class="log-text">{{item.text}}</text>
+      <text wx:if="{{!debugOpen}}" class="muted tiny">出错时把这里的内容复制出来，就能看到失败在哪一步（共 {{debugCount}} 条）。</text>
+      <view wx:if="{{debugOpen}}" class="log-actions">
+        <view class="btn small" bindtap="onCopyDebug">复制全部</view>
+        <view class="btn small" bindtap="onClearDebug">清空</view>
+        <view class="btn small" bindtap="onToggleEnableDebug">{{debugEnabled ? '关闭真机调试面板' : '打开真机调试面板'}}</view>
       </view>
-      <text wx:if="{{!debugRows.length}}" class="muted tiny">暂无日志。</text>
+      <view wx:if="{{debugOpen}}" class="log-box">
+        <view wx:for="{{debugRows}}" wx:key="key" class="log-row">
+          <text class="log-time">{{item.time}}</text>
+          <text class="log-level level-{{item.level}}">{{item.level}}</text>
+          <text class="log-text">{{item.text}}</text>
+        </view>
+        <text wx:if="{{!debugRows.length}}" class="muted tiny">暂无日志。</text>
+      </view>
+    </view>
+
+    <!-- 局面（FEN） -->
+    <view wx:if="{{activeTabKey === 'fen'}}" class="card">
+      <view class="section-title">FEN 局面</view>
+      <view class="row fen-row">
+        <input
+          class="fen-input"
+          value="{{fenInput}}"
+          placeholder="粘贴 FEN，例如 rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+          placeholder-class="fen-placeholder"
+          confirm-type="done"
+          bindinput="onFenInput"
+          bindconfirm="onLoadFen"
+        />
+        <view class="btn primary" bindtap="onLoadFen">载入</view>
+      </view>
+      <view class="row fen-actions">
+        <view class="chip" bindtap="onUseStartFen">填入初始局面</view>
+        <view class="gap"></view>
+        <text class="muted tiny">{{fenHint}}</text>
+      </view>
+    </view>
+
+    <view class="footnotes">
+      <view class="footnote">端上 Alpha-Beta 引擎 · MultiPV=3 · 分数为正表示白方占优</view>
+      <view class="footnote">云端点评使用云服务内置的大模型网关（无需自备 API Key），默认挑选响应快的模型；每次点评下方会标注实际使用的模型与提供方。</view>
+    </view>
+  </scroll-view>
+
+  <!-- Tab 栏：钉在底部，随时可切换（不参与滚动） -->
+  <view class="tabs">
+    <view
+      wx:for="{{tabs}}"
+      wx:key="key"
+      class="tab {{activeTabKey === item.key ? 'tab-active' : ''}}"
+      data-tab="{{item.key}}"
+      bindtap="onSwitchTab"
+    >
+      <text class="tab-label">{{item.label}}</text>
     </view>
   </view>
-
-  <view class="footnote">端上 Alpha-Beta 引擎 · MultiPV=3 · 分数为正表示白方占优</view>
-  <view class="footnote">云端点评使用云服务内置的大模型网关（无需自备 API Key），默认挑选响应快的模型；每次点评下方会标注实际使用的模型与提供方。</view>
 
 </view>

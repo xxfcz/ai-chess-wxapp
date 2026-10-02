@@ -23,12 +23,15 @@ const MAX_BOARD = 512
 const BOARD_MARGIN = 32
 
 /**
- * 依据窗口宽度算出棋盘尺寸。
+ * 依据窗口宽度算出棋盘尺寸；可选 maxBoard 给出尺寸上限（例如想让棋盘留在屏幕上半部）。
  * 返回的 boardSize 一定是 cellSize 的 8 倍，避免最后一列/行被裁掉。
  */
-function boardMetrics(width) {
+function boardMetrics(width, maxBoard) {
   const w = typeof width === 'number' && width > 0 ? width : 375
-  const raw = Math.max(MIN_BOARD, Math.min(MAX_BOARD, Math.floor(w - BOARD_MARGIN)))
+  let raw = Math.max(MIN_BOARD, Math.min(MAX_BOARD, Math.floor(w - BOARD_MARGIN)))
+  if (typeof maxBoard === 'number' && maxBoard > 0) {
+    raw = Math.max(MIN_BOARD, Math.min(raw, maxBoard))
+  }
   const cellSize = Math.max(1, Math.floor(raw / 8))
   return { boardSize: cellSize * 8, cellSize: cellSize }
 }
