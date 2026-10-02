@@ -1,0 +1,83 @@
+page {
+  --bg: #0f1118;
+  --panel: #1a1f2b;
+  --panel-2: #222839;
+  --border: #2d3548;
+  --text: #e9ecf5;
+  --muted: #8d96ad;
+  --accent: #f0b232;
+  --good: #35c26b;
+  --bad: #e8664f;
+
+  background-color: #0f1118;
+  color: #e9ecf5;
+  font-size: 28rpx;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+view,
+text,
+input,
+textarea,
+scroll-view,
+button {
+  box-sizing: border-box;
+}
+
+.card {
+  background-color: #1a1f2b;
+  border: 2rpx solid #2d3548;
+  border-radius: 20rpx;
+  padding: 24rpx;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+}
+
+.gap {
+  flex: 1;
+}
+
+.muted {
+  color: #8d96ad;
+}
+
+.section-title {
+  font-size: 26rpx;
+  color: #8d96ad;
+  letter-spacing: 2rpx;
+  margin-bottom: 16rpx;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 24rpx;
+  height: 64rpx;
+  border-radius: 14rpx;
+  background-color: #222839;
+  border: 2rpx solid #2d3548;
+  color: #e9ecf5;
+  font-size: 26rpx;
+  line-height: 1;
+}
+
+.btn.primary {
+  background-color: #f0b232;
+  border-color: #f0b232;
+  color: #241c07;
+  font-weight: 600;
+}
+
+.btn.ghost {
+  background-color: transparent;
+}
+
+.btn[disabled],
+.btn.disabled {
+  opacity: 0.4;
+}

@@ -1,0 +1,532 @@
+.page {
+  padding: 24rpx 16rpx 60rpx;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ------------------------------------------------------------ FEN 卡片 */
+
+.fen-row {
+  align-items: stretch;
+}
+
+.fen-input {
+  flex: 1;
+  height: 76rpx;
+  padding: 0 20rpx;
+  margin-right: 16rpx;
+  background-color: #12161f;
+  border: 2rpx solid #2d3548;
+  border-radius: 14rpx;
+  color: #e9ecf5;
+  font-size: 24rpx;
+  font-family: Menlo, Consolas, monospace;
+}
+
+.fen-placeholder {
+  color: #5c6577;
+  font-size: 22rpx;
+}
+
+.fen-actions {
+  margin-top: 16rpx;
+  align-items: center;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  height: 56rpx;
+  padding: 0 20rpx;
+  border-radius: 999rpx;
+  background-color: #222839;
+  border: 2rpx solid #2d3548;
+  color: #c3cadb;
+  font-size: 23rpx;
+  line-height: 1;
+}
+
+.tiny {
+  font-size: 22rpx;
+}
+
+/* --------------------------------------------------------------- 棋盘 */
+
+.board-wrap {
+  position: relative;
+  margin: 24rpx auto 0;
+  border-radius: 16rpx;
+  overflow: hidden;
+  border: 2rpx solid #2d3548;
+  box-shadow: 0 12rpx 32rpx rgba(0, 0, 0, 0.35);
+  background-color: #1a1f2b;
+}
+
+.grid {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+}
+
+.cell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.cell.light {
+  background-color: #ebecd0;
+}
+
+.cell.dark {
+  background-color: #739552;
+}
+
+/* 高亮用超大内阴影叠色，不覆盖格子本身的底色，可与其他标记共存 */
+.cell.last {
+  box-shadow: inset 0 0 0 999px rgba(255, 213, 79, 0.42);
+}
+
+.cell.hint {
+  box-shadow: inset 0 0 0 999px rgba(86, 170, 255, 0.45);
+}
+
+.cell.sel {
+  box-shadow: inset 0 0 0 999px rgba(255, 213, 79, 0.62);
+}
+
+.cell.check {
+  box-shadow: inset 0 0 0 999px rgba(226, 74, 61, 0.5);
+}
+
+.cell-label {
+  position: absolute;
+  line-height: 1;
+  opacity: 0.68;
+  font-weight: 600;
+}
+
+.cell-label-tl {
+  left: 3px;
+  top: 3px;
+}
+
+.cell-label-br {
+  right: 3px;
+  bottom: 3px;
+}
+
+.cell.light .cell-label {
+  color: #6f8b4e;
+}
+
+.cell.dark .cell-label {
+  color: #e8ecd2;
+}
+
+.piece {
+  line-height: 1;
+  font-family: Georgia, "Times New Roman", serif;
+}
+
+.piece-w {
+  color: #ffffff;
+  text-shadow: 0 0 1px #1b1f27, 1px 0 0 #1b1f27, -1px 0 0 #1b1f27, 0 1px 0 #1b1f27, 0 -1px 0 #1b1f27;
+}
+
+.piece-b {
+  color: #23262f;
+  text-shadow: 0 0 1px rgba(255, 255, 255, 0.6);
+}
+
+.mark-dot {
+  position: absolute;
+  width: 30%;
+  height: 30%;
+  border-radius: 50%;
+  background-color: rgba(21, 26, 36, 0.3);
+}
+
+.mark-ring {
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: 50%;
+  border: 4rpx solid rgba(21, 26, 36, 0.4);
+  box-sizing: border-box;
+}
+
+.ghost {
+  position: absolute;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.ghost-piece {
+  text-shadow: 0 6rpx 16rpx rgba(0, 0, 0, 0.5);
+}
+
+/* --------------------------------------------------------------- 状态 */
+
+.status-card {
+  margin-top: 24rpx;
+}
+
+.turn-dot {
+  width: 20rpx;
+  height: 20rpx;
+  border-radius: 50%;
+  margin-right: 14rpx;
+  border: 3rpx solid #0f1118;
+}
+
+.turn-dot.w {
+  background-color: #f2f4f8;
+}
+
+.turn-dot.b {
+  background-color: #4a5266;
+}
+
+.status-text {
+  font-size: 28rpx;
+  font-weight: 600;
+}
+
+.evalbar {
+  position: relative;
+  height: 16rpx;
+  margin-top: 20rpx;
+  border-radius: 999rpx;
+  background-color: #2a3144;
+  overflow: hidden;
+}
+
+.evalbar-white {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background-color: #eef1f7;
+  transition: width 260ms ease;
+}
+
+.evalbar-mid {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 2rpx;
+  background-color: rgba(15, 17, 24, 0.55);
+}
+
+.evalbar-meta {
+  margin-top: 14rpx;
+  align-items: center;
+}
+
+.eval-value {
+  font-family: Menlo, Consolas, monospace;
+  font-size: 26rpx;
+  color: #e9ecf5;
+}
+
+.banner {
+  margin-top: 20rpx;
+  padding: 16rpx 20rpx;
+  border-radius: 14rpx;
+  background-color: rgba(240, 178, 50, 0.14);
+  border: 2rpx solid rgba(240, 178, 50, 0.4);
+  color: #f0b232;
+  font-size: 26rpx;
+  text-align: center;
+}
+
+/* ------------------------------------------------------------ 控制按钮 */
+
+.controls {
+  margin-top: 24rpx;
+  gap: 16rpx;
+}
+
+.controls .btn {
+  flex: 1;
+  margin-right: 16rpx;
+}
+
+.controls .btn:last-child {
+  margin-right: 0;
+}
+
+.btn.small {
+  height: 58rpx;
+  padding: 0 20rpx;
+  font-size: 24rpx;
+  border-radius: 12rpx;
+}
+
+/* ------------------------------------------------------------ 分析面板 */
+
+.card + .card {
+  margin-top: 24rpx;
+}
+
+.head {
+  align-items: center;
+  margin-bottom: 12rpx;
+}
+
+.head .section-title {
+  margin-bottom: 0;
+}
+
+.head picker {
+  margin-right: 14rpx;
+}
+
+.head .btn.small {
+  margin-left: 14rpx;
+}
+
+.lines {
+  margin-top: 8rpx;
+}
+
+.line {
+  display: flex;
+  align-items: center;
+  padding: 18rpx 16rpx;
+  border-radius: 14rpx;
+  background-color: #141922;
+  border: 2rpx solid transparent;
+  margin-bottom: 12rpx;
+}
+
+.line-active {
+  border-color: rgba(86, 170, 255, 0.65);
+  background-color: rgba(86, 170, 255, 0.1);
+}
+
+.line-rank {
+  width: 44rpx;
+  height: 44rpx;
+  border-radius: 50%;
+  margin-right: 18rpx;
+  font-size: 24rpx;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #10131a;
+  background-color: #8d96ad;
+  flex-shrink: 0;
+}
+
+.rank-1 {
+  background-color: #f0b232;
+}
+
+.rank-2 {
+  background-color: #b9c3d6;
+}
+
+.rank-3 {
+  background-color: #a9805a;
+}
+
+.line-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.line-san {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #e9ecf5;
+  font-family: Menlo, Consolas, monospace;
+}
+
+.line-score {
+  font-size: 28rpx;
+  font-family: Menlo, Consolas, monospace;
+  font-weight: 600;
+}
+
+.line-pv {
+  display: block;
+  margin-top: 8rpx;
+  font-size: 23rpx;
+  color: #8d96ad;
+  font-family: Menlo, Consolas, monospace;
+  word-break: break-all;
+}
+
+.meta {
+  margin-top: 4rpx;
+}
+
+/* 分数配色：白方视角为正 */
+.tone-white {
+  color: #35c26b;
+}
+
+.tone-black {
+  color: #e8664f;
+}
+
+.tone-even {
+  color: #c3cadb;
+}
+
+.tone-mate {
+  color: #f0b232;
+}
+
+.tone-check {
+  color: #e8664f;
+}
+
+.tone-over {
+  color: #f0b232;
+}
+
+.error {
+  display: block;
+  margin-top: 12rpx;
+  color: #e8664f;
+  font-size: 24rpx;
+}
+
+/* 失败原因的排查线索：小字、等宽、不抢眼 */
+.tech-detail {
+  display: block;
+  margin-top: 8rpx;
+  font-size: 20rpx;
+  line-height: 1.5;
+  color: #5c6577;
+  font-family: Menlo, Consolas, monospace;
+  word-break: break-all;
+}
+
+/* ------------------------------------------------------------ 教练点评 */
+
+.coach-text {
+  display: block;
+  margin-top: 8rpx;
+  font-size: 27rpx;
+  line-height: 1.7;
+  color: #dfe4f0;
+}
+
+/* ------------------------------------------------------------ 走子记录 */
+
+.moves {
+  max-height: 380rpx;
+}
+
+.move-row {
+  display: flex;
+  align-items: center;
+  padding: 10rpx 8rpx;
+  border-bottom: 2rpx solid #232a3a;
+}
+
+.move-no {
+  width: 72rpx;
+  color: #8d96ad;
+  font-size: 24rpx;
+  font-family: Menlo, Consolas, monospace;
+}
+
+.move-san {
+  flex: 1;
+  font-size: 27rpx;
+  font-family: Menlo, Consolas, monospace;
+  color: #e9ecf5;
+}
+
+.footnote {
+  margin-top: 32rpx;
+  text-align: center;
+  font-size: 21rpx;
+  color: #5c6577;
+}
+
+/* 运行日志 */
+.log-actions {
+  display: flex;
+  flex-wrap: wrap;
+  margin-top: 16rpx;
+}
+
+.log-actions .btn {
+  margin: 0 12rpx 12rpx 0;
+}
+
+.log-box {
+  margin-top: 12rpx;
+  max-height: 520rpx;
+  overflow: auto;
+  padding: 12rpx 16rpx;
+  border-radius: 12rpx;
+  background-color: #12161f;
+  border: 2rpx solid #232a3a;
+}
+
+.log-row {
+  display: flex;
+  align-items: flex-start;
+  padding: 6rpx 0;
+  border-bottom: 2rpx solid #1b2130;
+}
+
+.log-row:last-child {
+  border-bottom: none;
+}
+
+.log-time {
+  width: 108rpx;
+  flex-shrink: 0;
+  font-size: 20rpx;
+  color: #6f778a;
+  font-family: Menlo, Consolas, monospace;
+}
+
+.log-level {
+  width: 76rpx;
+  flex-shrink: 0;
+  font-size: 20rpx;
+  font-family: Menlo, Consolas, monospace;
+}
+
+.level-info {
+  color: #7fb0ff;
+}
+
+.level-log {
+  color: #8d96ad;
+}
+
+.level-warn {
+  color: #f0b232;
+}
+
+.level-error {
+  color: #ff8b7a;
+}
+
+.log-text {
+  flex: 1;
+  font-size: 21rpx;
+  line-height: 1.5;
+  color: #c8cfdd;
+  word-break: break-all;
+}

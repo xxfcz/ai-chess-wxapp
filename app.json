@@ -1,0 +1,18 @@
+{
+  "pages": [
+    "pages/analyze/analyze"
+  ],
+  "window": {
+    "backgroundTextStyle": "light",
+    "navigationBarBackgroundColor": "#161a24",
+    "navigationBarTitleText": "国际象棋 AI 分析",
+    "navigationBarTextStyle": "white",
+    "backgroundColor": "#0f1118"
+  },
+  "lazyCodeLoading": "requiredComponents",
+  "networkTimeout": {
+    "request": 90000
+  },
+  "sitemapLocation": "sitemap.json",
+  "style": "v2"
+}
