@@ -10,7 +10,7 @@
 - 分析引擎是**端上纯 JS**（Alpha-Beta + 静态评估 + 静态搜索），**不依赖云端 Stockfish、不使用 web-view**。
 - 云服务只用于「AI 教练点评」（流式 LLM），走云服务内置的大模型网关，**免 API Key**。
 
-云服务应用 id：`wbapp_lnnoujEAl443RBb7ca7vmw`（appType=miniprogram，名称「国象AI分析」）。
+云服务应用 id：`wbapp_Q0BvUcC34QxiYVHs0aFeay`（appType=miniprogram，名称「国象AI分析」）。
 
 ## 2. 技术栈与运行环境
 
