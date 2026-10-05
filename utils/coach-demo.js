@@ -13,7 +13,8 @@
  *              "base":"root","moves":["Kg2","Qxd5"]}]}
  *   ===END===
  *   - base 支持 "root"（被点评局面）或 {"line":"<id>","ply":<第几手，1 起>}（从某条线走几步后继续）；
- *   - tone ∈ good / bad / neutral；moves 使用标准 SAN，逐手校验，非法/成环整条丢弃。
+ *   - tone ∈ good / bad / neutral；moves 使用标准 SAN，逐手校验：非法着法截断保留
+ *     前面的合法前缀（合法手数为 0、base 非法或成环才整条丢弃）。
  *
  * 正文与 desc 中的记号会被 tokenizeText 切成可点片段：
  *   - 走法（SAN，须命中某条演示线）→ 点击把该分支演示到第几手；
@@ -88,16 +89,35 @@ function normalizeLine(item, byId, rootFen) {
   const base = (item.base === 'root' || item.base === undefined || item.base === null)
     ? 'root'
     : (item.base && typeof item.base.line === 'string' ? item.base : 'root')
-  const moves = item.moves.slice(0, MAX_LINE_MOVES)
-  const resolved = resolveMoves({ base: base, moves: moves }, byId, rootFen, new Set())
+  const moves = (Array.isArray(item.moves) ? item.moves : []).slice(0, MAX_LINE_MOVES).map(normalizeSan)
+  const resolved = resolveMoves({ base: base, moves: moves, id: id }, byId, rootFen, new Set())
   if (!resolved) return null
-  return { id: id, label: label, tone: tone, desc: desc, base: base, moves: moves, resolved: resolved.sans, tos: resolved.tos }
+  // 展示用的 moves 用引擎回吐的规范 SAN，与截断后的实际可重放序列一致
+  return { id: id, label: label, tone: tone, desc: desc, base: base, moves: resolved.applied, resolved: resolved.sans, tos: resolved.tos }
+}
+
+/**
+ * 规范化模型给出的 SAN 写法，尽量挽救常见的非标准格式：
+ *  - 去掉首尾空白与误加的回合号前缀（「1.Kg2」→「Kg2」）；
+ *  - 去掉尾部的评注符号（「Qc4+!?」→「Qc4+」保留 +/#，去掉 !?．。等）；
+ *  - 王车易位用 0 代替 O（「0-0」→「O-O」）。
+ */
+function normalizeSan(san) {
+  if (typeof san !== 'string') return ''
+  let s = san.trim()
+  s = s.replace(/^\d+\s*\.{1,2}/, '')
+  s = s.replace(/[.!?！？．。,，;；]+$/g, '')
+  s = s.replace(/0-0-0/g, 'O-O-O').replace(/0-0/g, 'O-O')
+  return s.trim()
 }
 
 /**
  * 解析 base 锚点链，得到「从 root 起要连续施加的完整着法序列」及其落点格。
- * 校验整条链（祖先前缀 + 本线 moves）是否都合法；非法或成环则丢弃（返回 null）。
- * @returns {{ sans: string[], tos: string[] }|null}
+ * 容错策略：本线 moves 逐手校验，遇到非法着法**截断保留合法前缀**（模型偶尔会
+ * 写出实际走不到的着法，整条丢弃会让推荐线整个消失、正文里的走法也失去链接）；
+ * 只有合法手数为 0（或 base 前缀本身非法/成环）才丢弃整条。
+ * @returns {{ sans: string[], tos: string[], applied: string[] }|null}
+ *          applied = 本线被接受（规范化后）的着法，作为线展示用的 moves
  */
 function resolveMoves(item, byId, rootFen, visited) {
   let sans = []
@@ -117,15 +137,22 @@ function resolveMoves(item, byId, rootFen, visited) {
   }
   const probe = new Game(rootFen)
   for (let i = 0; i < sans.length; i++) {
-    const mv = probe.applySan(sans[i])
-    if (!mv) return null
+    if (!probe.applySan(sans[i])) return null
   }
+  const applied = []
   for (let i = 0; i < item.moves.length; i++) {
-    const mv = probe.applySan(item.moves[i])
-    if (!mv) return null
+    const mv = probe.applySan(normalizeSan(item.moves[i]))
+    if (!mv) {
+      // 截断保留：记录并用 debug-log 可见的 console.warn 暴露（预览/真机可从「运行日志」看到）
+      console.warn('[coach-demo] 线「' + (item.id || '?') + '」第 ' + (i + 1) + ' 手「' +
+        item.moves[i] + '」不合法，截断保留前 ' + applied.length + ' 手')
+      break
+    }
+    applied.push(mv.san) // 用引擎回吐的规范 SAN（含消歧/易位正写），展示与重放一致
     tos.push(mv.to)
   }
-  return { sans: sans.concat(item.moves), tos: tos }
+  if (!applied.length) return null
+  return { sans: sans.concat(applied), tos: tos, applied: applied }
 }
 
 /** 判断某条线第 moveIndex（0 基）手的行棋方（依据 root 局面的行棋方与 resolved 序号交替） */
