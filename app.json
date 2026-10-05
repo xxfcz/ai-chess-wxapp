@@ -5,7 +5,7 @@
   "window": {
     "backgroundTextStyle": "light",
     "navigationBarBackgroundColor": "#161a24",
-    "navigationBarTitleText": "国际象棋 AI 分析",
+    "navigationBarTitleText": "黑白格大师",
     "navigationBarTextStyle": "white",
     "backgroundColor": "#0f1118"
   },
