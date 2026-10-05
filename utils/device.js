@@ -104,6 +104,55 @@ function toast(title) {
 }
 
 /**
+ * 复制到剪贴板。环境不支持时如实提示，绝不因为「复制」本身抛错。
+ * @returns {boolean} 是否真的调到了剪贴板接口（false 表示已降级为提示）
+ */
+function copyText(text) {
+  const data = typeof text === 'string' ? text : String(text == null ? '' : text)
+  try {
+    if (typeof wx !== 'undefined' && typeof wx.setClipboardData === 'function') {
+      wx.setClipboardData({
+        data: data,
+        success: () => toast('已复制到剪贴板'),
+        fail: () => toast('复制失败，可长按选中文字')
+      })
+      return true
+    }
+  } catch (e) {
+    // 继续降级
+  }
+  toast('当前环境不支持复制')
+  return false
+}
+
+/**
+ * 弹出操作菜单（长按点评后让用户挑要复制哪一段）。
+ * 环境不支持时返回 false，调用方应降级为「直接复制最具体的那一项」。
+ *
+ * @param {string[]} itemList 菜单项（微信限制最多 6 项）
+ * @param {(index:number)=>void} onPick 选中回调
+ */
+function actionSheet(itemList, onPick) {
+  try {
+    if (typeof wx !== 'undefined' && typeof wx.showActionSheet === 'function' && itemList && itemList.length) {
+      wx.showActionSheet({
+        itemList: itemList,
+        success: res => {
+          if (typeof onPick === 'function') onPick(res && typeof res.tapIndex === 'number' ? res.tapIndex : -1)
+        },
+        fail: () => {
+          // 用户取消，忽略
+        }
+      })
+      return true
+    }
+  } catch (e) {
+    // 继续降级
+  }
+  return false
+}
+
+/**
  * 当前环境是否具备网络请求能力。
  *
  * 网页版预览只实现微信接口的一个子集（已知没有 createSelectorQuery），
@@ -118,4 +167,13 @@ function canRequest() {
   }
 }
 
-module.exports = { getWindowWidth, getWindowHeight, toast, canRequest, FALLBACK_WIDTH, FALLBACK_HEIGHT }
+module.exports = {
+  getWindowWidth,
+  getWindowHeight,
+  toast,
+  canRequest,
+  copyText,
+  actionSheet,
+  FALLBACK_WIDTH,
+  FALLBACK_HEIGHT
+}

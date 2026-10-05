@@ -118,13 +118,40 @@
         <view class="gap"></view>
         <view wx:if="{{commenting}}" class="btn small" bindtap="onCoach">取消生成</view>
         <view wx:else class="btn small {{cloudReady ? '' : 'disabled'}}" bindtap="onCoach">生成点评</view>
+        <view wx:if="{{coachText || demoLines.length}}" class="btn small" bindtap="onCopyCoach">复制</view>
       </view>
-      <text wx:if="{{coachText}}" class="coach-text">{{coachText}}</text>
+      <!-- 生成中：先给流式正文（已剔除结构化块）；完成后一律切成富文本片段，不再有纯文本兜底 -->
+      <text wx:if="{{commenting && coachText}}" class="coach-text" bindlongpress="onCoachLongPress">{{coachText}}</text>
       <text wx:elif="{{commenting}}" class="muted tiny">{{commentingHint}}</text>
+      <text wx:elif="{{coachSegments.length}}" class="coach-text" bindlongpress="onCoachLongPress">
+        <text wx:for="{{coachSegments}}" wx:key="key" class="seg {{item.line || item.sq || item.piece ? 'seg-move ' + item.cls : ''}}" data-line="{{item.line}}" data-ply="{{item.ply}}" data-sq="{{item.sq}}" data-piece="{{item.piece}}" bindtap="onCoachTokenTap">{{item.text}}</text>
+      </text>
       <text wx:elif="{{coachError}}" class="error">{{coachError}}</text>
       <text wx:elif="{{cloudHint}}" class="muted tiny">{{cloudHint}}</text>
       <text wx:else class="muted tiny">基于当前局面与三条候选路线，由云端大模型给出中文讲解。</text>
       <text wx:if="{{coachModel && coachText}}" class="muted tiny">本条点评由云端模型 {{coachModel}} 生成。</text>
+
+      <!-- 走法演示：分支走法独立成列表；正文与描述里的走法/格子/棋子都可点 -->
+      <view wx:if="{{demoLines.length}}" class="demo-box">
+        <view wx:if="{{demoActive}}">
+          <text class="demo-crumb">{{demoBreadcrumb}}</text>
+          <view class="row demo-controls">
+            <view class="btn small {{demoCanBack ? '' : 'disabled'}}" data-dir="-1" bindtap="onDemoStep">上一步</view>
+            <view class="btn small {{demoCanForward ? '' : 'disabled'}}" data-dir="1" bindtap="onDemoStep">下一步</view>
+            <view class="btn small" bindtap="onDemoPlay">{{demoPlaying ? '暂停' : '播放'}}</view>
+            <view class="btn small" bindtap="onDemoExit">退出演示</view>
+          </view>
+        </view>
+        <text wx:else class="muted tiny">点击分支或正文里的走法 / 格子 / 棋子，在棋盘上演示与高亮：</text>
+        <view class="demo-lines">
+          <view wx:for="{{demoLines}}" wx:key="key" class="demo-line" data-line="{{item.id}}" bindlongpress="onLineLongPress">
+            <text class="demo-line-label {{item.cls}}" data-line="{{item.id}}" bindtap="onEnterDemo">{{item.label}}（{{item.total}}手）</text>
+            <text class="demo-line-desc"><text wx:for="{{item.segs}}" wx:for-item="seg" wx:key="key" class="seg {{seg.line || seg.sq || seg.piece ? 'seg-move ' + seg.cls : ''}}" data-line="{{seg.line}}" data-ply="{{seg.ply}}" data-sq="{{seg.sq}}" data-piece="{{seg.piece}}" bindtap="onCoachTokenTap">{{seg.text}}</text></text>
+            <text class="demo-line-moves"><text wx:for="{{item.moves}}" wx:for-item="mv" wx:key="key" class="seg {{mv.line || mv.sq || mv.piece ? 'seg-move ' + mv.cls : ''}}" data-line="{{mv.line}}" data-ply="{{mv.ply}}" data-sq="{{mv.sq}}" data-piece="{{mv.piece}}" bindtap="onCoachTokenTap">{{mv.text}}</text></text>
+          </view>
+        </view>
+      </view>
+
       <text wx:if="{{coachDetail}}" class="tech-detail">{{coachDetail}}</text>
     </view>
 
@@ -175,7 +202,7 @@
         <input
           class="fen-input"
           value="{{fenInput}}"
-          placeholder="粘贴 FEN，例如 rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+          placeholder="粘贴 FEN，例如 r1b2rk1/ppp1p1pp/3b4/2qP4/8/2P2N1P/PP1B1P2/R1Q1RK2 w - - 0 1"
           placeholder-class="fen-placeholder"
           confirm-type="done"
           bindinput="onFenInput"
@@ -184,7 +211,7 @@
         <view class="btn primary" bindtap="onLoadFen">载入</view>
       </view>
       <view class="row fen-actions">
-        <view class="chip" bindtap="onUseStartFen">填入初始局面</view>
+        <view class="chip" bindtap="onUseStartFen">填入预置局面</view>
         <view class="gap"></view>
         <text class="muted tiny">{{fenHint}}</text>
       </view>

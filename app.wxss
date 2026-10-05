@@ -23,6 +23,12 @@ textarea,
 scroll-view,
 button {
   box-sizing: border-box;
+  /* 预览面板把 WXML 渲染成网页 DOM，文字默认可选中（I 型光标 + 拖拽=选中文本），
+     会抢走纵向滑动手势。关闭选择并还原默认箭头光标，滑动就顺了。 */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  cursor: default;
 }
 
 .card {

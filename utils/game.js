@@ -13,7 +13,8 @@
 const { Chess } = require('./chess.js')
 const { cellToSquare } = require('./geometry')
 
-const START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
+// 预置局面：用户指定的开局中局局面（白方行棋，双方均已王车易位）
+const START_FEN = 'r1b2rk1/ppp1p1pp/3b4/2qP4/8/2P2N1P/PP1B1P2/R1Q1RK2 w - - 0 1'
 const DEFAULT_PROMOTION = 'q'
 
 class Game {
@@ -235,6 +236,56 @@ class Game {
     this._cursor = this._states.length - 1
     this.clearSelection()
     return move
+  }
+
+  /**
+   * 按 SAN 记谱走子（演示 / 重放用）。返回 verbose move，非法或歧义返回 null。
+   * 不依赖真实交互选择，直接对当前局面施加一记记谱走法。
+   */
+  applySan(san) {
+    const chess = this._chess
+    let move
+    try {
+      move = chess.move(san)
+    } catch (e) {
+      return null
+    }
+    if (!move) return null
+    this._states = this._states.slice(0, this._cursor + 1)
+    this._states.push({
+      fen: chess.fen(),
+      san: move.san,
+      from: move.from,
+      to: move.to,
+      color: move.color,
+      captured: move.captured || null
+    })
+    this._cursor = this._states.length - 1
+    this.clearSelection()
+    return move
+  }
+
+  /**
+   * 找出某方某兵种当前所在的全部格子（点评里的「黑后」「f3马」点击后定位用）。
+   * @param {string} color 'w' | 'b'
+   * @param {string} type  'k'|'q'|'r'|'b'|'n'|'p'
+   * @returns {string[]} 格子名数组（如 ['d6']），找不到为空数组
+   */
+  pieceSquares(color, type) {
+    const board = this._chess.board()
+    const out = []
+    for (let row = 0; row < 8; row++) {
+      const boardRow = board[row]
+      if (!boardRow) continue
+      for (let file = 0; file < 8; file++) {
+        const piece = boardRow[file]
+        if (piece && piece.color === color && piece.type === type) {
+          // chess.js 的 board() 第 0 行是第 8 横线
+          out.push('abcdefgh'.charAt(file) + String(8 - row))
+        }
+      }
+    }
+    return out
   }
 
   undo() {

@@ -68,6 +68,12 @@ function buildCells(state) {
     marks[s.hint.from] = 'hint'
     marks[s.hint.to] = 'hint'
   }
+  // 「位置焦点」：点评里点到的格子/棋子（可多格），独立于 last/hint/sel/check 的紫色标记
+  const focusSet = {}
+  const focus = Array.isArray(s.focus) ? s.focus : []
+  for (let i = 0; i < focus.length; i++) {
+    if (typeof focus[i] === 'string' && focus[i]) focusSet[focus[i]] = true
+  }
 
   const cells = []
   for (let row = 0; row < 8; row++) {
@@ -83,6 +89,7 @@ function buildCells(state) {
       if (s.selected === square) cls.push('sel')
       if (marks[square]) cls.push(marks[square])
       if (s.checkSquare === square) cls.push('check')
+      if (focusSet[square]) cls.push('focus')
 
       let mark = ''
       if (targets[square]) mark = piece ? 'ring' : 'dot'

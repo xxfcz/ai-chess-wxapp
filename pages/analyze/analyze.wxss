@@ -14,6 +14,20 @@
 .body {
   flex: 1;
   min-height: 0;
+  -webkit-overflow-scrolling: touch;
+  /* 兜底：远端预览若未渲染原生 scroll-view 的滚动，靠这条保证可上下划动 */
+  overflow-y: auto;
+  /* 纵向拖拽归为滚动，不再被「选词」吃掉 */
+  touch-action: pan-y;
+  overscroll-behavior: contain;
+}
+
+/* 可点击元素的指针光标，提示可交互 */
+.btn,
+.chip,
+.tab,
+.line {
+  cursor: pointer;
 }
 
 /* 滚回顶部用的锚点（切换 Tab 时改变 id 即可重新触发滚动） */
@@ -88,6 +102,10 @@
   color: #e9ecf5;
   font-size: 24rpx;
   font-family: Menlo, Consolas, monospace;
+  /* 输入框必须可编辑/可定位光标，恢复选择与文本光标 */
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: text;
 }
 
 .fen-placeholder {
@@ -167,6 +185,11 @@
 
 .cell.check {
   box-shadow: inset 0 0 0 999px rgba(226, 74, 61, 0.5);
+}
+
+/* 「位置焦点」：点评里点到的格子/棋子。紫色与 last(琥珀)/hint(蓝)/check(红) 明显区分 */
+.cell.focus {
+  box-shadow: inset 0 0 0 999px rgba(176, 92, 255, 0.55), inset 0 0 0 6rpx rgba(216, 160, 255, 0.9);
 }
 
 .cell-label {
@@ -465,6 +488,10 @@
   font-size: 27rpx;
   line-height: 1.7;
   color: #dfe4f0;
+  /* 点评结果需在预览里可被框选复制，恢复选择与文本光标（其余区域仍不可选） */
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: text;
 }
 
 /* ------------------------------------------------------------ 走子记录 */
@@ -570,4 +597,108 @@
   line-height: 1.5;
   color: #c8cfdd;
   word-break: break-all;
+}
+
+/* ------------------------------------------------------------ 走法演示 */
+
+.demo-box {
+  margin-top: 20rpx;
+  padding-top: 16rpx;
+  border-top: 2rpx solid #232a3a;
+}
+
+.demo-crumb {
+  display: block;
+  margin-bottom: 14rpx;
+  font-size: 23rpx;
+  line-height: 1.5;
+  color: #f0b232;
+}
+
+.demo-controls {
+  flex-wrap: wrap;
+  gap: 12rpx;
+}
+
+.demo-controls .btn {
+  margin-right: 0;
+}
+
+/* 分支列表：每条线独立成行（标签按线序号着色，描述按黑白方着色） */
+.demo-lines {
+  flex-direction: column;
+  gap: 14rpx;
+  margin-top: 12rpx;
+}
+
+.demo-line {
+  display: block;
+}
+
+.demo-line-label {
+  display: inline-block;
+  margin-bottom: 4rpx;
+  font-size: 24rpx;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.demo-line-desc {
+  display: block;
+  font-size: 23rpx;
+  line-height: 1.6;
+  color: #c3cadb;
+}
+
+/* 分支走法序列：完整、按手数顺序列出，每段（白/黑）可点跳到对应手 */
+.demo-line-moves {
+  display: block;
+  margin-top: 6rpx;
+  padding: 8rpx 12rpx;
+  font-size: 24rpx;
+  line-height: 1.7;
+  letter-spacing: 0.5rpx;
+  color: #e7ecf6;
+  background-color: rgba(255, 255, 255, 0.04);
+  border-radius: 8rpx;
+}
+
+/* 分支标签配色：与正文链接的 ln-0/1/2 同色系，一眼对应 */
+.demo-label-0 { color: #7fb0ff; }
+.demo-label-1 { color: #ffb86b; }
+.demo-label-2 { color: #d0a8ff; }
+
+/* 点评正文里可点的记号：与 .coach-text 同字号行高，拼接后段落连贯。
+   可点记号一律带 .seg-move（蓝底 + 下划线），分支/行棋方着色用独立修饰类叠加。
+   正文（branch 模式）按分支着色：线 0 = 蓝（默认），线 1 = 橙，线 2 = 紫 */
+.seg-move {
+  color: #7fb0ff;
+  border-bottom: 2rpx solid rgba(127, 176, 255, 0.5);
+  cursor: pointer;
+}
+
+.ln-0 {
+  color: #7fb0ff;
+  border-bottom-color: rgba(127, 176, 255, 0.5);
+}
+
+.ln-1 {
+  color: #ffb86b;
+  border-bottom-color: rgba(255, 184, 107, 0.5);
+}
+
+.ln-2 {
+  color: #d0a8ff;
+  border-bottom-color: rgba(208, 168, 255, 0.5);
+}
+
+/* 分支列表 / 描述里（side 模式）按行棋方着色：白方手亮白、黑方手浅灰，贴合棋子配色 */
+.side-w {
+  color: #f2f6ff;
+  border-bottom-color: rgba(242, 246, 255, 0.55);
+}
+
+.side-b {
+  color: #9aa6bd;
+  border-bottom-color: rgba(154, 166, 189, 0.55);
 }

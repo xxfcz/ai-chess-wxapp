@@ -10,6 +10,7 @@ const geometry = require('../../utils/geometry')
 const boardModel = require('../../utils/board-model')
 const device = require('../../utils/device')
 const ai = require('../../utils/ai-client')
+const coachDemo = require('../../utils/coach-demo')
 const debugLog = require('../../utils/debug-log')
 
 const DEPTH_OPTIONS = [2, 3, 4]
@@ -59,6 +60,13 @@ Page({
     commentingHint: '正在请求云端模型，通常需要 3~15 秒…',
     /** 本次点评实际使用的云端模型名，显示在点评下方 */
     coachModel: '',
+    demoActive: false,
+    demoLines: [],
+    coachSegments: [],
+    demoBreadcrumb: '',
+    demoPlaying: false,
+    demoCanBack: false,
+    demoCanForward: false,
     commenting: false,
     /** 当前环境是否有网络请求能力（网页版预览可能没有 wx.request） */
     cloudReady: true,
@@ -109,6 +117,9 @@ Page({
     this._coachController = null
     this._coachCancelled = false
     this._coachStartedAt = 0
+    this.demo = null
+    this._demoParsed = null   // 最近一次点评解析出的演示线（退出演示后可凭它重建会话）
+    this._realFocus = []      // 真实棋盘上的「位置焦点」高亮（点评里点到的格子/棋子）
 
     // 日志缓冲：正常由 app.js 装好，这里兜底一次（重复调用是安全的）
     debugLog.install()
@@ -134,6 +145,7 @@ Page({
 
   onUnload() {
     this._destroyed = true
+    if (this.demo) this.demo.exit()
     if (this._analyzeTimer) clearTimeout(this._analyzeTimer)
     if (this._debugUnsubscribe) {
       this._debugUnsubscribe()
@@ -201,8 +213,14 @@ Page({
       lastMove: this.game.lastMove(),
       checkSquare: this.game.kingSquareUnderCheck(),
       hint: this.hint,
-      hiddenSquare: drag && drag.moved ? drag.from : null
+      hiddenSquare: drag && drag.moved ? drag.from : null,
+      focus: this._realFocus || []
     })
+  },
+
+  /** 是否处于「走法演示」状态（演示跑在临时副本上，不触碰真实棋局） */
+  demoActive() {
+    return !!(this.demo && this.demo.active)
   },
 
   /**
@@ -249,7 +267,11 @@ Page({
     }
     this.hint = null
     this._fenEditing = false
-    this.setData({ hintIndex: -1, ghost: null, coachText: '', coachError: '', coachDetail: '', coachModel: '' })
+    this._realFocus = []
+    // 真实棋局一动，点评演示就过期了：清掉演示状态与解析缓存
+    this.demo = null
+    this._demoParsed = null
+    this.setData({ hintIndex: -1, ghost: null, coachText: '', coachError: '', coachDetail: '', coachModel: '', demoLines: [], coachSegments: [], demoActive: false, demoBreadcrumb: '', demoPlaying: false, demoCanBack: false, demoCanForward: false })
     this.syncAll()
     this.scheduleAnalyze()
     return true
@@ -261,6 +283,8 @@ Page({
    * @param {object|null} touch 触摸事件里的触点，带 clientX/clientY；点选传 null
    */
   pressSquare(square, touch) {
+    if (this.demoActive()) return
+    this._realFocus = []
     const game = this.game
     this._drag = null
 
@@ -302,6 +326,8 @@ Page({
 
   onCellTouchStart(e) {
     if (!this.game) return
+    if (this.demoActive()) return
+    this._realFocus = []
     this._touchHandledAt = Date.now()
     const square = e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.sq : ''
     if (!square) return
@@ -310,6 +336,8 @@ Page({
   },
 
   onBoardTouchMove(e) {
+    if (this.demoActive()) return
+    this._realFocus = []
     const drag = this._drag
     if (!drag) return
     const touch = e.touches && e.touches[0] ? e.touches[0] : null
@@ -339,6 +367,8 @@ Page({
   },
 
   onBoardTouchEnd(e) {
+    if (this.demoActive()) return
+    this._realFocus = []
     this._touchHandledAt = Date.now()
     const drag = this._drag
     if (!drag) return
@@ -373,6 +403,8 @@ Page({
 
   /** 点选走子的兜底：个别环境不派发触摸事件，只能靠 tap */
   onCellTap(e) {
+    if (this.demoActive()) return
+    this._realFocus = []
     if (Date.now() - this._touchHandledAt < TAP_SUPPRESS_MS) return
     if (!this.game) return
     const square = e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.sq : ''
@@ -381,6 +413,8 @@ Page({
   },
 
   onUndo() {
+    if (this.demoActive()) return
+    this._realFocus = []
     if (!this.game.canUndo()) return
     this.game.undo()
     this.hint = null
@@ -392,6 +426,8 @@ Page({
   },
 
   onRedo() {
+    if (this.demoActive()) return
+    this._realFocus = []
     if (!this.game.canRedo()) return
     this.game.redo()
     this.hint = null
@@ -403,6 +439,8 @@ Page({
   },
 
   onReset() {
+    if (this.demoActive()) return
+    this._realFocus = []
     this.game.reset()
     this.hint = null
     this._drag = null
@@ -427,6 +465,11 @@ Page({
   },
 
   onFlip() {
+    if (this.demoActive()) {
+      this.demo.flip()
+      this.setData(this.demo.view())
+      return
+    }
     this.game.flip()
     this._drag = null
     this.hint = null
@@ -460,6 +503,8 @@ Page({
   },
 
   onLoadFen() {
+    if (this.demoActive()) return
+    this._realFocus = []
     const raw = (this.data.fenInput || '').trim()
     if (!raw) {
       device.toast('请先粘贴 FEN')
@@ -746,12 +791,23 @@ Page({
     this._coachCancelled = false
     this._coachStartedAt = Date.now()
 
+    if (this.demo) this.demo.exit()
+    this.demo = null
+    this._demoParsed = null
+    this._realFocus = []
     this.setData({
       commenting: true,
       coachText: '',
       coachError: '',
       coachDetail: '',
       coachModel: '',
+      demoLines: [],
+      coachSegments: [],
+      demoActive: false,
+      demoBreadcrumb: '',
+      demoPlaying: false,
+      demoCanBack: false,
+      demoCanForward: false,
       commentingHint: '正在请求云端模型，通常需要 3~15 秒…'
     })
 
@@ -766,7 +822,8 @@ Page({
         lines: this._lastResult.lines,
         onDelta: value => {
           if (this._destroyed || this._coachCancelled) return
-          this.setData({ coachText: value })
+          // 流式期间就把 ===DEMO=== 结构化块剔掉，避免原始 JSON 闪现在正文里
+          this.setData({ coachText: coachDemo.stripDemoBlock(value) })
         },
         onModel: info => {
           if (this._destroyed) return
@@ -777,7 +834,24 @@ Page({
         signal: controller ? controller.signal : undefined
       })
       if (this._destroyed || this._coachCancelled) return
-      this.setData({ coachText: text, commenting: false })
+      const parsed = coachDemo.parseDemo(text, this.game.getFen())
+      // 解析结果留存：退出演示后再次点击记号/分支，可凭它重建会话
+      this._demoParsed = parsed.lines.length ? { lines: parsed.lines, rootFen: this.game.getFen() } : null
+      this.demo = this._demoParsed
+        ? new coachDemo.DemoSession(parsed.lines, this.game.getFen(), { flipped: this.game.flipped })
+        : null
+      this.setData({
+        coachText: parsed.prose,
+        commenting: false,
+        demoLines: this.demo ? this.demo.lineViews() : [],
+        // 正文一律走富文本片段（走法/格子/棋子都可点），不再有纯文本兜底
+        coachSegments: coachDemo.tokenizeText(parsed.prose, { lines: parsed.lines, colorMode: 'branch' }) || [],
+        demoActive: false,
+        demoBreadcrumb: '',
+        demoPlaying: false,
+        demoCanBack: false,
+        demoCanForward: false
+      })
       debugLog.push('info', '[点评] 完成 · ' + Math.round((Date.now() - this._coachStartedAt) / 1000) +
         ' 秒 · ' + text.length + ' 字 · ' + (this.data.coachModel || '未知模型'))
     } catch (err) {
@@ -803,5 +877,170 @@ Page({
       }
       this._coachController = null
     }
+  },
+
+  /* ---------------------------------------------------------- 走法演示 */
+
+  /** 演示会话不在时（退出后又被点击）按最近一次点评的解析结果重建 */
+  _ensureDemo() {
+    if (this.demo) return true
+    if (!this._demoParsed || !this._demoParsed.lines.length) return false
+    this.demo = new coachDemo.DemoSession(this._demoParsed.lines, this._demoParsed.rootFen, { flipped: this.game.flipped })
+    return true
+  },
+
+  /** 点击分支标签：进入该线，从被点评局面起逐步重放 */
+  onEnterDemo(e) {
+    const lineId = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.line : ''
+    if (!lineId || !this._ensureDemo()) return
+    this.demo.enter(lineId)
+    this.setData(this.demo.view())
+  },
+
+  /** 演示内上一步 / 下一步 */
+  onDemoStep(e) {
+    if (!this.demo) return
+    const dir = Number((e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.dir : 0))
+    this.demo.step(dir > 0 ? 1 : -1)
+    this.setData(this.demo.view())
+  },
+
+  /** 演示播放 / 暂停（自动逐步落子） */
+  onDemoPlay() {
+    if (!this.demo) return
+    if (this.demo.playing) {
+      this.demo.pause()
+      this.setData({ demoPlaying: false })
+      return
+    }
+    this.demo.play(() => this.setData(this.demo.view()))
+    this.setData(this.demo.view())
+  },
+
+  /** 退出演示：销毁临时副本，棋盘回到真实棋局；分支列表与富文本点评保留 */
+  onDemoExit() {
+    if (this.demo) this.demo.exit()
+    this.demo = null
+    this.setData({
+      demoActive: false,
+      demoBreadcrumb: '',
+      demoPlaying: false,
+      demoCanBack: false,
+      demoCanForward: false
+    })
+    this.syncAll()
+  },
+
+  /**
+   * 点击点评/分支描述里的记号：
+   *   - 走法（SAN）→ 进入对应分支并演示到那一手；
+   *   - 格子/棋子 → 先把语境分支上盘（若记号是某手的落点则演示到那一手，
+   *     否则停在起点），再以独立紫色高亮目标格（棋子可多格）。
+   * 没有语境线（无演示线或正文前文没有分支）时，直接在真实棋盘上高亮。
+   */
+  onCoachTokenTap(e) {
+    const d = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset : {}
+    if (d.sq || d.piece) return this._focusToken(d)
+    if (!d.line || !this._ensureDemo()) return
+    this.demo.enterAt(d.line, Number(d.ply) || 0)
+    this.setData(this.demo.view())
+  },
+
+  /** 格子 / 棋子记号的位置高亮 */
+  _focusToken(d) {
+    const line = d.line || ''
+    let squares = []
+    let useDemo = false
+    if (d.piece) {
+      if (line && this._ensureDemo()) {
+        useDemo = true
+        this.demo.enterAt(line, Number(d.ply) || 0)
+        squares = this.demo.findPieces(d.piece)
+      } else {
+        squares = this.game.pieceSquares(d.piece.charAt(0), d.piece.charAt(1))
+      }
+    } else if (line && this._ensureDemo()) {
+      useDemo = true
+      this.demo.enterAt(line, Number(d.ply) || 0)
+      squares = [d.sq]
+    } else {
+      squares = [d.sq]
+    }
+    if (useDemo && this.demoActive()) {
+      this.demo.setFocus(squares)
+      this.setData(this.demo.view())
+      return
+    }
+    this._realFocus = squares.filter(function (sq) { return !!sq })
+    this.syncAll()
+  },
+
+  /* ---------------------------------------------------------- 点评复制 */
+
+  /** 点评正文纯文本（已剔除结构化块） */
+  _proseText() {
+    const t = this.data.coachText || ''
+    return t.trim()
+  },
+
+  /** 取某条分支的纯文本（用于「复制这条分支」） */
+  _lineText(lineId) {
+    if (!this._demoParsed || !this._demoParsed.lines.length) return ''
+    const line = this._demoParsed.lines.find(l => l.id === lineId)
+    if (!line) return ''
+    return coachDemo.linePlainText(line, this.game.getTurn())
+  },
+
+  /** 全部分支纯文本 */
+  _branchText() {
+    if (!this._demoParsed || !this._demoParsed.lines.length) return ''
+    return coachDemo.branchPlainText(this._demoParsed.lines, this.game.getTurn())
+  },
+
+  /**
+   * 统一入口：长按点评 / 点「复制」按钮 / 长按某条分支 共用。
+   * 不强制弹菜单（预览环境可能无 actionSheet），只有「一项可复制」时直接复制，
+   * 多项时用微信操作菜单让用户挑要复制哪一段。
+   * @param {string} [lineId] 指定分支时只围绕该分支构建菜单
+   */
+  _openCopyMenu(lineId) {
+    const opts = []
+    if (lineId) {
+      const one = this._lineText(lineId)
+      if (one) opts.push({ label: '复制这条分支', text: one })
+    }
+    const branches = this._branchText()
+    if (branches) opts.push({ label: lineId ? '复制全部分支' : '复制分支走法', text: branches })
+    const prose = this._proseText()
+    if (prose) opts.push({ label: '复制点评原文', text: prose })
+    if (prose && branches) opts.push({ label: '复制全部（正文+分支）', text: coachDemo.coachPlainText(prose, this._demoParsed.lines, this.game.getTurn()) })
+    if (!opts.length) {
+      device.toast('还没有可复制的点评')
+      return
+    }
+    if (opts.length === 1) {
+      device.copyText(opts[0].text)
+      return
+    }
+    const picked = device.actionSheet(opts.map(o => o.label), idx => {
+      if (typeof idx === 'number' && idx >= 0 && opts[idx]) device.copyText(opts[idx].text)
+    })
+    if (!picked) device.copyText(opts[0].text)
+  },
+
+  /** 「复制」按钮 / 长按整段点评：弹出复制菜单 */
+  onCopyCoach() {
+    this._openCopyMenu('')
+  },
+
+  /** 长按整段点评正文（与按钮同效，方便预览环境无长按时也能复制） */
+  onCoachLongPress() {
+    this._openCopyMenu('')
+  },
+
+  /** 长按某条分支走法：围绕该分支弹出复制菜单 */
+  onLineLongPress(e) {
+    const d = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset : {}
+    this._openCopyMenu(d.line || '')
   }
 })
