@@ -17,6 +17,28 @@ const { cellToSquare } = require('./geometry')
 const START_FEN = 'r1b2rk1/ppp1p1pp/3b4/2qP4/8/2P2N1P/PP1B1P2/R1Q1RK2 w - - 0 1'
 const DEFAULT_PROMOTION = 'q'
 
+/** FEN 后五段的默认值；用户常常只贴第一段棋子布局 */
+const FEN_FIELD_DEFAULTS = ['w', '-', '-', '0', '1']
+
+/** 合法的棋子布局段：8 个由 / 分隔的行，只含棋子字母与空格数 */
+const PLACEMENT_RE = /^([1-8pnbrqkPNBRQK]+\/){7}[1-8pnbrqkPNBRQK]+$/
+
+/**
+ * 规整 FEN：不足 6 段且首段确实是棋子布局时，按惯例补全尾部字段。
+ * 界面文案承诺了「支持只写棋子布局（自动补全）」，这里必须真的兑现——
+ * 否则用户少贴一段就是一次毫无反馈的失败。
+ *
+ * 但只在该补的时候补：对明显不像 FEN 的输入保持原样，
+ * 否则会把「布局段不合法」误报成「行棋方不合法」，掩盖真正的原因。
+ * 已满 6 段时同样原样返回，不改变既有校验行为。
+ */
+function normalizeFenFields(fen) {
+  const parts = fen.trim().split(/\s+/)
+  if (parts.length >= 6 || !PLACEMENT_RE.test(parts[0])) return parts.join(' ')
+  while (parts.length < 6) parts.push(FEN_FIELD_DEFAULTS[parts.length - 1])
+  return parts.join(' ')
+}
+
 class Game {
   constructor(fen) {
     this.selected = null
@@ -40,7 +62,7 @@ class Game {
       err.code = 'BAD_FEN'
       throw err
     }
-    const normalized = fen.trim()
+    const normalized = normalizeFenFields(fen)
     const next = new Chess()
     const check = next.validate_fen(normalized)
     if (!check || check.valid !== true) {

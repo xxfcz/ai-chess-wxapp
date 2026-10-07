@@ -450,6 +450,9 @@ module.exports = {
   providerOf,
   buildCandidates,
   resetModelChoice,
+  // Agent 化阶段二要把重试粒度从「单次请求」上提到「会话层」，
+  // 这个函数届时会被重写，先导出以便有回归测试兜底。
+  shouldTryNextModel,
   sanitizeFen,
   ENV_NO_NETWORK_TEXT,
   MODEL_PREFERENCE,

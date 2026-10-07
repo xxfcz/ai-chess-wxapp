@@ -276,21 +276,33 @@ function createDiagnosticWx(originalWx, overrides) {
                 settle('plain', true, { errMsg: `request:fail timeout（云端模型 ${seconds(limits.plainCeilingMs)} 秒内没有返回结果）` })
             }, limits.plainCeilingMs)
 
-            state.inner = originalWx.request({
-                ...options,
-                enableChunked: false,
-                responseType: 'text',
-                timeout: options.timeout || limits.requestTimeoutMs,
-                success(result) {
-                    emitHeaders(result.header)
-                    const body = typeof result.data === 'string' ? result.data : JSON.stringify(result.data)
-                    emitChunk(encodeUtf8(body))
-                    settle('plain', false, result)
-                },
-                fail(result) {
-                    settle('plain', true, result)
-                }
-            })
+        state.inner = (function () {
+            // 探测请求有 try/catch 兜底，降级这里同样要兜：
+            // wx.request 本身也可能同步抛错（并行上限、宿主异常等），
+            // 直接穿透出去会让 SDK 连 fail 都收不到。
+            try {
+                return originalWx.request({
+                    ...options,
+                    enableChunked: false,
+                    responseType: 'text',
+                    timeout: options.timeout || limits.requestTimeoutMs,
+                    success(result) {
+                        emitHeaders(result.header)
+                        const body = typeof result.data === 'string' ? result.data : JSON.stringify(result.data)
+                        emitChunk(encodeUtf8(body))
+                        settle('plain', false, result)
+                    },
+                    fail(result) {
+                        settle('plain', true, result)
+                    }
+                })
+            } catch (e) {
+                settle('plain', true, {
+                    errMsg: 'request:fail ' + ((e && e.message) || '发起请求失败')
+                })
+                return null
+            }
+        })()
         }
 
         // 已确认环境不支持分块：直接走一次性请求，不再白发一次探测

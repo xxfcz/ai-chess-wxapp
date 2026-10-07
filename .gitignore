@@ -12,7 +12,7 @@ src/.wbapp_*.genie
 
 # ===== WorkBuddy 本地工作区数据（agent 记忆/运行态，非源码）=====
 # 如需在多机间同步 agent 记忆，可删除此行改为只忽略其中的临时子目录。
-.workbuddy/
+.workbuddy/tmp/
 
 # ===== 依赖锁文件：保留以便复现版本（如需交给 CI 重新解算可改为忽略）=====
 # src/package-lock.json
