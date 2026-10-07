@@ -142,6 +142,15 @@ node .workbuddy/tests/cloud-adapter.test.js     # UTF-8 编码、原生分块透
 - **改云端点评**：动 `ai-client.js`（提示词/模型/超时/重试）与 `cloud-adapter`（看门狗/降级）；配置在 `cloud-config.js`。遵守 §7，发布前在微信开发者工具执行「构建 npm」。
 - **加新页面/功能**：页面内自查状态，新页面加进 `app.json#pages`，保留 `lazyCodeLoading`。
 - **排查真机/预览问题**：先看界面「运行日志」卡片（环形缓冲）；`onToggleEnableDebug()` 走 `wx.setEnableDebug` 打开真机调试面板（重进小程序才生效）。
+- **Agent 化（Tutor / Sparrer）**：先读 `docs/agent-plan.md`（角色定义、术语表、冻结契约、决策记录），
+  再按阶段读 `docs/agent-phase1-tutor.md` / `agent-phase2-react.md` / `agent-phase3-memory.md`。
+  **改 Tutor 界面/文案前先读 `docs/agent-tutor-interactions.md`**（六条交互第一性原则、三个阶段共用的
+  会话状态机、错误文案口径表 §8）；它不重复阶段的机制设计，只约束「用户看到什么、能做什么」。
+  三条跨阶段铁律：**走法只能由 chess.js 产生**（LLM 只输出意图/候选编号，不拼写 SAN）；
+  工具层跑在端上（`utils/tools.js`，用 `raw_*`）；工具结果压缩后才回传模型。
+  术语：教练 = `tutor`，陪练 = `sparrer`（**不用 `opponent`/`rival`**，理由见 plan §1.1）。
+  注意：**既有 `coach` 标识符不重命名**（`COACH_SYSTEM_PROMPT`、`coach-demo.js`、`onCoach`、`coachText`），
+  见 plan §1.4；新增的一切统一用 `tutor` / `sparrer`。
 
 ## 11. 一句话避坑清单
 
