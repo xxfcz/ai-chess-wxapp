@@ -7,9 +7,9 @@
  * 不要在这里写入任何长期密钥、环境 id 或服务端凭据。
  */
 const publicConfig = {
-  resourceId: 'wbcs_lgFNlEpClBk313UYV660rn',
+  resourceId: 'wbcs_lyWv0kj2M9PBotd3mDopm9',
   endpoint: 'https://mp-api.app.workbuddy.host',
-  publishableKey: 'wbpk_Q0BvUcC34QxiYVHs0aFeay_tRNDkb2Ib91NfyPBzmLuNjc7hKrzC128'
+  publishableKey: 'wbpk_XuxCaYOHVeBjdrJ4UfSMX6_2j82wjjFTrRa7x6f59Xt3PgV14xlXCPl'
 }
 
 module.exports = { publicConfig }

@@ -76,6 +76,19 @@ node .workbuddy/tests/agent-tools.test.js      # 48（阶段一新增）
 - **Tutor 必须能「指」棋盘**（move/sq/piece 三类记号 + focus 高亮），否则与通用大模型无差异。
 - **三个阶段都不新增底部 Tab**（5 个已是小屏上限）；消息数 ≤ 3 轮，`scroll-into-view` 可用。
 
+## 云服务接入惯例（2026-10-08 定）
+
+- 应用「生成点评」等 LLM 功能依赖真实云端：凭证只在 `utils/cloud-config.js` 的 `publicConfig`
+  （`endpoint` + `publishableKey` 可随前端发布，**不**放长期密钥/环境 id/服务端凭据）。
+- **隐蔽回归点**：每次「重建 / 重发应用」之后，代码里的 `publishableKey` 前缀**不会自动跟着变**，
+  仍停留在上次构建写入的旧 applicationId。必须人工核对前缀 == 当前 applicationId，否则 LLM 调用
+  落到旧账号/旧环境（失败或扣错额度）。
+- 接入四步闭环：**开通（reuse 指定 appId）→ 改凭证指向 → 隐私清单 → 真实探针**。
+- 「测试全绿 ≠ 云可用」：单元测试只 mock 配置、覆盖逻辑，真实数据面必须靠一次性真实探针验证，
+  探针用完即删。详见 `docs/云服务接入经验总结.md`。
+- 隐私清单按需声明：先 grep 仓库用到哪些 `wx.` 隐私接口（本项目仅 `Clipboard` / `wx.setClipboardData`），
+  最小集合声明，避免微信审核被拒。
+
 ## 待办
 
 - 【已修复 2026-10-08】`DemoSession.view()` 字段名与 WXML 不一致：原返回 `active/canBack/canForward/playing/breadcrumb`
