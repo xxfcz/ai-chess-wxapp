@@ -146,8 +146,9 @@ node .workbuddy/tests/cloud-adapter.test.js     # UTF-8 编码、原生分块透
   再按阶段读 `docs/agent-phase1-tutor.md` / `agent-phase2-react.md` / `agent-phase3-memory.md`。
   **改 Tutor 界面/文案前先读 `docs/agent-tutor-interactions.md`**（六条交互第一性原则、三个阶段共用的
   会话状态机、错误文案口径表 §8）；它不重复阶段的机制设计，只约束「用户看到什么、能做什么」。
-  三条跨阶段铁律：**走法只能由 chess.js 产生**（LLM 只输出意图/候选编号，不拼写 SAN）；
-  工具层跑在端上（`utils/tools.js`，用 `raw_*`）；工具结果压缩后才回传模型。
+  四条跨阶段铁律：**走法只能由 chess.js 产生**（LLM 只输出意图/候选编号，不拼写 SAN）；
+  工具层跑在端上（`utils/tools.js`，用 `raw_*`）；工具结果压缩后才回传模型；
+  **内部数据一律 `FEN + UCI`，PGN 只在导入/导出的边界各转换一次**（plan §4.4）。
   术语：教练 = `tutor`，陪练 = `sparrer`（**不用 `opponent`/`rival`**，理由见 plan §1.1）。
   注意：**既有 `coach` 标识符不重命名**（`COACH_SYSTEM_PROMPT`、`coach-demo.js`、`onCoach`、`coachText`），
   见 plan §1.4；新增的一切统一用 `tutor` / `sparrer`。
