@@ -31,16 +31,35 @@
 
 ## 回归测试门禁
 
-`.workbuddy/tests/` 三套，共 401 项断言。跑法（用 managed node 绝对路径）：
+`.workbuddy/tests/` 四套，共 454 项断言。跑法（用 managed node 绝对路径）：
 
 ```
 node .workbuddy/tests/engine-and-game.test.js   # 153
-node .workbuddy/tests/analyze-page.test.js      # 180
+node .workbuddy/tests/analyze-page.test.js      # 185
 node .workbuddy/tests/cloud-adapter.test.js     # 68
+node .workbuddy/tests/agent-tools.test.js      # 48（阶段一新增）
 ```
 
 零依赖（`_harness.js` 是自写的极简断言工具）。`analyze-page` 对机器负载敏感——
 等待一律用 `waitFor()` 轮询（超时 15s），**不要写死 `sleep`**，否则慢机器上偶发假绿。
+
+## 阶段一 · Candidate Grounding（2026-10-08 完成）
+
+把演示线从「模型凭空生成 SAN」改成「模型提意图（cand 编号 + extend 手数）→ 端上生成合法序列」。
+落地清单（对应 `agent-phase1-tutor.md §7`）：
+
+- 新增 `utils/tools.js`：`legalMoves(fen,{only,limit})` 与 `expandLine(fen,moves,{depth,extend})`。
+  内部走 `raw_*`，SAN 只在返回处生成一次；不 import 页面/wx。`expandLine` 用引擎最佳应对续手（非随机）。
+- `utils/ai-client.js`：新增 `buildToolContext(fen,result,{topN})`（复用 `_lastResult`，零额外搜索；
+  候选≤8、文本≤400 token、显式保留一个劣手候选）与 `groundDemoLines(text,candidates,fen)`（cand+extend→真实 moves，
+  就近纠正、兼容旧 `moves`、损坏 JSON/终局降级）。`COACH_SYSTEM_PROMPT` 删除合法性教条，改为 cand/extend 协议；
+  `buildUserPrompt` 追加候选段。
+- `utils/coach-demo.js`：`resolveMoves` 追加可选第六参 `whitelist`（前向兼容钩子，现有逻辑不变），并导出。
+- `pages/analyze/analyze.js`：`onCoach` 请求前 `buildToolContext` 取候选，请求后 `groundDemoLines` 落地，再交给 `parseDemo`。
+- 关键设计：**候选续手优先复用候选自带 PV（零额外搜索，D4）**，PV 不够长才用 `expandLine` 兜底；
+  `chess.move()` 不接受 UCI 字符串，tools 里 `applyMove()` 把 UCI 转成 `{from,to,promotion}` 对象。
+- 既有 `coach` 标识符一律保留（见上方命名约定）；新增函数名按契约（`buildToolContext`/`groundDemoLines`），
+  未引入 `tutor` 前缀——因为阶段一契约在 `agent-plan.md §6` 已锁死这些工具层函数名。
 
 ## 规划文档
 
@@ -59,5 +78,10 @@ node .workbuddy/tests/cloud-adapter.test.js     # 68
 
 ## 待办
 
-- `DemoSession.view()` 返回 `active/canBack/...`，而 `analyze.wxml` 读 `demoActive/demoCanBack/...`
-  ——字段名不一致，演示线控制按钮大概率失效。已用测试钉住，**开阶段一时顺手统一**。
+- 【已修复 2026-10-08】`DemoSession.view()` 字段名与 WXML 不一致：原返回 `active/canBack/canForward/playing/breadcrumb`
+  （未加 `demo` 前缀），而 `analyze.wxml` 读 `demoActive/demoCanBack/demoCanForward/demoPlaying/demoBreadcrumb`，
+  导致 `setData(this.demo.view())` 后这五个页面 data 字段永远是 `data()` 默认值、演示控制条
+  （上一步/下一步/播放/退出）永不激活。已在 `coach-demo.js view()` 把五个键改名为 `demo*` 前缀，
+  对齐页面 data 约定（页面 data() 本就初始化 `demoActive/demoCanBack/...`）；`analyze-page.test.js`
+  的缺陷钉（断言旧字段 `active` 存在）改为修复验证（断言 `demo*` 产出且旧名 `active` 不再出现）。
+  全套回归仍绿（454 项）。

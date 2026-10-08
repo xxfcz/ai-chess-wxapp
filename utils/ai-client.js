@@ -10,6 +10,9 @@
  */
 const engine = require('./engine')
 const device = require('./device')
+const tools = require('./tools')
+const coachDemo = require('./coach-demo')
+const { Chess } = require('./chess.js')
 const { getCloud } = require('./cloud')
 
 const COACH_SYSTEM_PROMPT = [
@@ -20,13 +23,18 @@ const COACH_SYSTEM_PROMPT = [
   '',
   '点评正文之后，若局面存在可选的后续走法，请补充一段「走法演示」数据，格式严格如下（不要使用 Markdown 代码块、不要加解释）：',
   '===DEMO===',
-  '{"lines":[{"id":"main","label":"主线走法（Kg2）","tone":"good","desc":"最推荐的顽强防守。后续黑方若走 Qxd5，虽有 Bxh3+，但白王可安全逃到 g3。","moves":["Kg2","Qxd5","Kg3"]},{"id":"avoid","label":"对比走法（Ke2）","tone":"bad","desc":"错误的劣着。黑方会接 Qc4+ 再 Rxf3，白方白白多丢一个马。","base":"root","moves":["Ke2","Qc4+","Rxf3"]}]}',
+  '{"lines":[{"id":"main","label":"主线走法","tone":"good","desc":"一句话点评要点（不超过 40 字）","base":"root","cand":"#1","extend":2}]}',
   '===END===',
-  '规则：lines 最多 3 条，每条 moves 最多 6 手，使用标准 SAN（如 e4、Nf3、O-O、exd5、c8=Q）；王车易位写 O-O / O-O-O，不要用 0-0；',
-  '每条线必须带 desc：一句中文短语点评这条线的好坏与要点（不超过 40 字），desc 与正文里的走法都直接写 SAN、位置直接写格子名（如 e5、h2）、棋子直接写「黑后」「d6象」「f3马」，系统会自动把它们变成可点链接，不要自己加任何标记；',
-  'tone 取 good（推荐）/ bad（避免）/ neutral（中性应对）；',
+  '规则：lines 最多 3 条；tone 取 good（推荐）/ bad（避免）/ neutral（中性应对）；',
+  '每条线必须带 desc：一句中文短语点评这条线的好坏与要点（不超过 40 字）；',
   '被点评局面下你最推荐的走法也必须作为一条 tone=good 的线输出（即使正文已经提到它），不要只写进正文；',
-  'moves 必须从该线起点起逐手合法且黑白交替：每个子都要真的能走到那个格子（注意不要被自己或对方的棋子挡住、不要吃不存在的子、将军时才加 +）；不确定能走到的着法宁可不写，也不要猜测；',
+  '',
+  '【重要】演示线的走法由系统生成，你只负责挑选，绝不自己拼写任何走法（SAN）：',
+  '  - cand：从下方「合法候选」段落里选一个 #编号（必填，且必须真实存在于候选表中）；',
+  '  - extend：在该候选之后，由系统用引擎最佳应对再展开几手（0~4，默认 0）；',
+  '  - 禁止在 moves 字段里写任何走法，也禁止在 desc 里写具体着法；系统会自动把候选走法、',
+  '    格子名（如 e5、h2）、棋子名（如「黑后」「d6象」「f3马」）变成可点链接，不要自己加标记；',
+  '  - desc 里若想说明某个后续局面，用棋子名或格子名描述，不要写走法。',
   '一条线若从另一条线走几步后的局面继续，用 base:{"line":"<那条线的 id>","ply":<第几手，从 1 起>} 指明起点，从被点评局面起则写 "root" 或省略；',
   '若没有合适的演示线，直接不输出 ===DEMO=== 段。'
 ].join('')
@@ -200,6 +208,10 @@ function buildUserPrompt(params) {
     return `${item.rank}. ${item.san}（后续 ${(item.pvSan || []).slice(1, 4).join(' ') || '—'}），白方视角分数 ${score.text}`
   })
 
+  const candidateText = typeof params.candidateText === 'string' && params.candidateText
+    ? '\n' + params.candidateText
+    : ''
+
   return [
     `局面 FEN：${fen}`,
     `轮到${side}行棋。`,
@@ -207,8 +219,302 @@ function buildUserPrompt(params) {
     rows.join('\n') || '（引擎未给出路线）',
     '',
     `请点评：这个局面的核心矛盾是什么？首选路线 ${lines.length ? lines[0].san : '—'} 好在哪里？`,
-    `最后给${side}一条具体的行棋建议。`
+    `最后给${side}一条具体的行棋建议。`,
+    candidateText
   ].join('\n')
+}
+
+/* --------------------------------------------------- 阶段一 · Candidate Grounding */
+
+/** 从 FEN 推出行棋方（缺省白） */
+function guessSide(fen) {
+  const parts = typeof fen === 'string' ? fen.split(' ') : []
+  return parts[1] === 'b' ? 'b' : 'w'
+}
+
+/**
+ * 阶段一 · 把端上已分析出的候选路线整理成「模型可引用的候选表」，
+ * 并返回拼进 user prompt 的候选段落文本（便于单测与锁定 token 预算）。
+ *
+ * 成本为零：优先复用传入的已有分析结果（页面 _lastResult，含 3 条线及其 PV）；
+ * 仅当 lines 缺失（例如用户尚未触发分析就点点评）时才补跑一次轻量搜索（R-场景）。
+ *
+ * @param {string} fen
+ * @param {object} result 引擎 analyze 结果（含 lines / sideToMove），可空
+ * @param {object} [opts] { topN }
+ * @returns {Promise<{ candidates: Array, text: string }>}
+ */
+async function buildToolContext(fen, result, opts) {
+  opts = opts || {}
+  const topN = typeof opts.topN === 'number' && opts.topN > 0 ? Math.min(opts.topN, 8) : 6
+
+  const lines = (result && result.lines) || []
+  let side = (result && result.sideToMove) || guessSide(fen)
+  let engLines = lines
+
+  // 缺少分析结果：补跑一次轻量搜索（仅此一种情况会触发额外引擎调用）
+  if (!engLines.length) {
+    try {
+      const r = await engine.analyze({ fen: fen, depth: 2, multiPV: 3 })
+      engLines = r.lines || []
+      if (!side || side === 'w') side = r.sideToMove || 'w'
+    } catch (e) {
+      engLines = []
+    }
+  }
+  const sideToMove = side || 'w'
+
+  const candidates = []
+  const usedUci = new Set()
+  engLines.slice(0, 3).forEach(ln => {
+    const score = formatScore(ln, sideToMove)
+    candidates.push({
+      no: candidates.length + 1,
+      san: ln.san,
+      uci: ln.uci,
+      whiteCp: score.whiteCp,
+      scoreText: score.text,
+      next: (ln.pvSan || []).slice(1, 3),
+      pv: ln.pv || [],
+      pvSan: ln.pvSan || [],
+      inferior: false
+    })
+    usedUci.add(ln.uci)
+  })
+
+  // 显式保留一个劣手候选，给模型的 AVOID 对比线一个安全的负面样本
+  const allLegal = tools.legalMoves(fen, {})
+  if (candidates.length < topN) {
+    const inferior = allLegal.find(m => !usedUci.has(m.uci))
+    if (inferior) {
+      candidates.push({
+        no: candidates.length + 1,
+        san: inferior.san,
+        uci: inferior.uci,
+        whiteCp: null,
+        scoreText: '（劣手，可作对比）',
+        next: [],
+        pv: [],
+        pvSan: [],
+        inferior: true
+      })
+      usedUci.add(inferior.uci)
+    }
+  }
+
+  // 仍不足 topN：用其余合法走法补足（标记「备选」，无评分，避免过度占用预算）
+  let guard = 0
+  while (candidates.length < topN && guard < 64) {
+    guard++
+    const extra = allLegal.find(m => !usedUci.has(m.uci))
+    if (!extra) break
+    candidates.push({
+      no: candidates.length + 1,
+      san: extra.san,
+      uci: extra.uci,
+      whiteCp: null,
+      scoreText: '（备选）',
+      next: [],
+      pv: [],
+      pvSan: [],
+      inferior: false
+    })
+    usedUci.add(extra.uci)
+  }
+
+  return { candidates: candidates, text: buildCandidatePrompt(candidates) }
+}
+
+/** 把候选表拼成喂给模型的紧凑段落（不易误读、限 token） */
+function buildCandidatePrompt(candidates) {
+  const rows = (candidates || []).map(c => {
+    const scorePart = c.whiteCp != null ? ('白方视角 ' + c.scoreText) : c.scoreText
+    const nextPart = (c.next && c.next.length) ? ('  后续 ' + c.next.join(' ')) : ''
+    return '#' + c.no + ' ' + c.san + '  ' + scorePart + nextPart
+  })
+  return [
+    '合法候选（供演示线引用，编号前的 # 不要写进 desc；禁止自行拼写任何走法，只能引用下面的 #编号）：',
+    rows.join('\n')
+  ].join('\n')
+}
+
+/** 从点评文本里取出 ===DEMO=== ... ===END=== 块与其边界 */
+function extractDemoBlock(text) {
+  const t = typeof text === 'string' ? text : ''
+  const start = t.indexOf(coachDemo.DEMO_START)
+  if (start < 0) return null
+  const rest = t.slice(start + coachDemo.DEMO_START.length)
+  const end = rest.indexOf(coachDemo.DEMO_END)
+  const jsonStr = (end >= 0 ? rest.slice(0, end) : rest).trim()
+  const absEnd = end >= 0
+    ? start + coachDemo.DEMO_START.length + end + coachDemo.DEMO_END.length
+    : t.length
+  return { jsonStr: jsonStr, start: start, end: absEnd }
+}
+
+/** 把一个候选落子从某局面起，落地为真实 SAN 序列（优先用自带 PV，零额外搜索） */
+async function groundFromCand(cand, startFen, extend, depth) {
+  extend = Math.max(0, Math.min(extend | 0, 4))
+  const cont = (cand.pvSan || []).slice(1, 1 + extend)
+
+  // 优先复用候选自带 PV（D4：零额外搜索），续手即引擎最佳应对
+  const chess = new Chess()
+  const check = chess.validate_fen(startFen)
+  if (check && check.valid === true) {
+    chess.load(startFen)
+    let ok = true
+    const seed = tools.applyMove(chess, cand.uci)
+    if (!seed) ok = false
+    if (ok) {
+      const moves = [cand.san]
+      for (let i = 0; i < cont.length; i++) {
+        const m = tools.applyMove(chess, cont[i])
+        if (!m) { ok = false; break }
+        moves.push(m.san)
+      }
+      if (ok && moves.length === 1 + extend) return moves
+    }
+  }
+
+  // PV 不够长 / 起点不可行：用引擎最佳应对兜底展开（仍落在端上、保证合法）
+  const res = await tools.expandLine(startFen, [cand.uci], { depth: depth, extend: extend })
+  return res.path.map(p => p.san).slice(0, 1 + extend)
+}
+
+/** 候选就近纠正：# 编号优先；否则按 SAN / UCI 文本命中 */
+function resolveCand(candStr, candByNo, candidates) {
+  const s = String(candStr == null ? '' : candStr).trim()
+  if (!s) return null
+  if (s.charAt(0) === '#') {
+    const c = candByNo[s]
+    if (c) return c
+  }
+  const upper = s.toUpperCase()
+  const bySan = (candidates || []).find(c => c && c.san && c.san.toUpperCase() === upper)
+  if (bySan) return bySan
+  return (candidates || []).find(c => c && c.uci && c.uci.toUpperCase() === upper) || null
+}
+
+/**
+ * 阶段一 · 把模型输出的 cand + extend 落地为端上生成的真实走法序列。
+ *
+ * 输入：模型原始点评文本（含 ===DEMO=== 块）。
+ * 输出：{ text, warnings } —— text 为「候选已替换为真实 moves 的等价文本」，可直接喂给
+ *       coachDemo.parseDemo（输入结构不变）。warnings 供运行日志留痕。
+ *
+ * 设计要点（agent-phase1 §5.4 / §5.5）：
+ *   - 候选续手优先复用候选自带的 PV（零额外搜索），PV 不够长时再用 expandLine 兜底；
+ *   - cand 非法（编号不存在 / 写成走法文本）走「就近纠正」：按 SAN 命中候选 → 否则该线降级丢弃；
+ *   - 仍走旧 moves 格式的线直接透传，交给 parseDemo 的 resolveMoves 做既有截断容错（R3）；
+ *   - 所有线都失败 → 返回原文本（交 parseDemo 静默降级为无演示线，正文不受影响）。
+ *
+ * @param {string} text 模型原始点评文本
+ * @param {Array} candidates buildToolContext 产出的候选表
+ * @param {string} fen 被点评局面 FEN
+ * @param {object} [opts] { depth }
+ * @returns {Promise<{ text: string, warnings: string[] }>}
+ */
+async function groundDemoLines(text, candidates, fen, opts) {
+  opts = opts || {}
+  const depth = typeof opts.depth === 'number' && opts.depth > 0 ? opts.depth : 3
+  const warnings = []
+
+  const block = extractDemoBlock(text)
+  if (!block) return { text: text, warnings: warnings }
+
+  let data
+  try {
+    data = JSON.parse(block.jsonStr)
+  } catch (e) {
+    warnings.push('DEMO JSON 解析失败，演示线降级为无（正文保留）')
+    return { text: text, warnings: warnings, degraded: true }
+  }
+
+  const rawLines = Array.isArray(data.lines) ? data.lines : []
+  if (!rawLines.length) return { text: text, warnings: warnings }
+
+  const candByNo = {}
+  ;(candidates || []).forEach(c => { if (c && c.no != null) candByNo['#' + c.no] = c })
+  const byId = {}
+  rawLines.forEach(item => { if (item && typeof item.id === 'string') byId[item.id] = item })
+
+  const grounded = []
+  for (let i = 0; i < rawLines.length; i++) {
+    const g = await groundOneLine(rawLines[i], candByNo, candidates, fen, depth, byId)
+    if (g) { grounded.push(g); byId[g.id] = g }
+    else warnings.push('线「' + ((rawLines[i] && rawLines[i].id) || '?') + '」无法落地，已降级丢弃')
+  }
+
+  if (!grounded.length) {
+    warnings.push('所有演示线均无法落地，降级为无演示线')
+    return { text: text, warnings: warnings, degraded: true }
+  }
+
+  const newJson = JSON.stringify({
+    lines: grounded.map(g => ({
+      id: g.id, label: g.label, tone: g.tone, desc: g.desc, base: g.base, moves: g.moves
+    }))
+  })
+  const newText = text.slice(0, block.start) + coachDemo.DEMO_START + '\n' +
+    newJson + '\n' + coachDemo.DEMO_END + text.slice(block.end)
+  return { text: newText, warnings: warnings }
+}
+
+async function groundOneLine(item, candByNo, candidates, fen, depth, byId) {
+  if (!item || typeof item !== 'object') return null
+  const id = typeof item.id === 'string' && item.id ? item.id : ('line' + Math.random().toString(36).slice(2, 7))
+  const tone = item.tone === 'bad' || item.tone === 'good' ? item.tone : 'neutral'
+  const label = typeof item.label === 'string' && item.label
+    ? item.label
+    : (tone === 'good' ? '推荐走法' : tone === 'bad' ? '避免走法' : '演示线')
+  const desc = typeof item.desc === 'string' ? item.desc.trim().slice(0, 80) : ''
+  const base = (item.base === 'root' || item.base === undefined || item.base === null)
+    ? 'root'
+    : (item.base && typeof item.base === 'object' ? item.base : 'root')
+
+  // base 引用另一条线：从那条线走几手后的局面继续（沿用现有语义）
+  let startFen = fen
+  if (base !== 'root') {
+    const parent = (typeof base.line === 'string') ? byId[base.line] : null
+    if (!parent) return null // 父线不存在 → 该线降级丢弃（warning 由调用方记录）
+    // 注意：base+root候选的组合极为罕见且通常非法，交由 groundFromCand 自然丢弃；
+    // 旧 moves 格式则保持 continuation，由 parseDemo 的 resolveMoves 重放 base 前缀。
+    const ply = (typeof base.ply === 'number' && base.ply > 0)
+      ? Math.min(base.ply, parent.moves.length) : parent.moves.length
+    startFen = replayFen(fen, parent.moves.slice(0, ply)) || fen
+  }
+
+  let moves = []
+  if (item.cand != null && String(item.cand) !== '') {
+    const cand = resolveCand(item.cand, candByNo, candidates)
+    if (!cand) return null // 候选无法解析 → 该线降级丢弃
+    const extend = typeof item.extend === 'number' ? item.extend : 0
+    moves = await groundFromCand(cand, startFen, extend, depth)
+    if (!moves.length) return null
+  } else if (Array.isArray(item.moves) && item.moves.length) {
+    // 旧格式：原样透传，交给 parseDemo 的 resolveMoves 截断容错（R3）
+    moves = item.moves.slice(0, 8).map(s => (typeof s === 'string' ? s.trim() : ''))
+  } else {
+    return null // 既无 cand 也无 moves → 丢弃
+  }
+
+  return { id: id, label: label, tone: tone, desc: desc, base: base, moves: moves }
+}
+
+/** 在 fen 基础上连续施加若干 SAN，返回新局面 FEN（任一非法返回 null） */
+function replayFen(fen, sans) {
+  const chess = new Chess()
+  const check = chess.validate_fen(fen)
+  if (!check || check.valid !== true) return null
+  chess.load(fen)
+  for (let i = 0; i < (sans || []).length; i++) {
+    try {
+      if (!chess.move(sans[i])) return null
+    } catch (e) {
+      return null
+    }
+  }
+  return chess.fen()
 }
 
 /** 汇总底层原因（wx.request 的 errMsg、TypeError 文案等），用于诊断 */
@@ -238,7 +544,10 @@ function causeOf(err) {
 function llmErrorInfo(err) {
   const code = err && err.error && err.error.code ? String(err.error.code) : ''
   const status = err && typeof err.status === 'number' ? err.status : undefined
-  const detail = code ? code + (causeOf(err) ? ' · ' + causeOf(err) : '') : causeOf(err)
+  const cause = causeOf(err)
+  // 把 HTTP 状态码带进排查详情（例如预览环境网络层回 404 时，能看到 HTTP 404 而不是裸的 Not found）
+  const statusTag = (typeof status === 'number' && status) ? `HTTP ${status} · ` : ''
+  const detail = (statusTag + (code ? code + (cause ? ' · ' + cause : '') : cause)).trim()
 
   const wrap = (message, kind) => ({ message: message, detail: detail, kind: kind })
 
@@ -274,6 +583,12 @@ function llmErrorInfo(err) {
   }
   if (code.indexOf('internal_') === 0) {
     return wrap('服务内部错误' + (err.requestId ? `（请求号 ${err.requestId}）` : '') + '，请稍后重试。', 'internal')
+  }
+  // 404：云端接口路径不存在。多发生在「预览环境网络层无法真正访问该服务」时
+  // （返回的是 404 的 statusText/正文 “Not found”，而非云端规范 JSON 错误），
+  // 既不是模型故障，也不是本端代码问题——端上引擎分析不受影响。
+  if (status === 404) {
+    return wrap('云端接口返回 404（未找到）。这通常是预览环境的网络层无法访问该云服务接口所致，端上引擎分析不受影响；请在微信开发者工具或真机上重试「生成点评」。', 'notfound')
   }
   if (status === 0) return wrap('网络连接失败，请检查网络后重试。', 'network')
   const message = err && err.message ? String(err.message) : ''
@@ -457,5 +772,9 @@ module.exports = {
   ENV_NO_NETWORK_TEXT,
   MODEL_PREFERENCE,
   MAX_ATTEMPTS,
-  MAX_TOKENS
+  MAX_TOKENS,
+  // 阶段一 · Candidate Grounding
+  buildToolContext,
+  groundDemoLines,
+  buildCandidatePrompt
 }

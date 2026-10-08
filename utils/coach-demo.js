@@ -116,10 +116,17 @@ function normalizeSan(san) {
  * 容错策略：本线 moves 逐手校验，遇到非法着法**截断保留合法前缀**（模型偶尔会
  * 写出实际走不到的着法，整条丢弃会让推荐线整个消失、正文里的走法也失去链接）；
  * 只有合法手数为 0（或 base 前缀本身非法/成环）才丢弃整条。
+ * @param {object} item 归一化后的线对象（含 base / moves / id）
+ * @param {object} byId 其它线按 id 的索引（供 base 引用）
+ * @param {string} rootFen 被点评局面的 FEN
+ * @param {Set<string>} visited 递归去环集合
+ * @param {Set<string>} [whitelist] 阶段一落地层（groundDemoLines）传入的、
+ *        经过端上校验的候选走法集合（SAN）。不传时行为与历史完全一致；传入时仅作
+ *        前向兼容钩子，不改变「逐手 applySan 校验 + 截断保留」的核心逻辑。
  * @returns {{ sans: string[], tos: string[], applied: string[] }|null}
  *          applied = 本线被接受（规范化后）的着法，作为线展示用的 moves
  */
-function resolveMoves(item, byId, rootFen, visited) {
+function resolveMoves(item, byId, rootFen, visited, whitelist) {
   let sans = []
   let tos = []
   const base = item.base
@@ -556,16 +563,18 @@ class DemoSession {
       breadcrumb += '（自' + src + '起）'
     }
     return {
-      active: this.active,
+      // 字段名与页面 data / WXML 模板对齐（demo* 前缀），否则 setData 后
+      // 模板读的 demoActive/demoCanBack/... 永远是 data() 里的默认值，演示控制条永不激活。
+      demoActive: this.active,
       lineId: this.lineId,
       label: line ? line.label : '',
       tone: line ? line.tone : '',
       cursor: this.cursor,
       total: total,
-      canBack: this.cursor > 0,
-      canForward: this.cursor < total,
-      playing: this.playing,
-      breadcrumb: breadcrumb,
+      demoCanBack: this.cursor > 0,
+      demoCanForward: this.cursor < total,
+      demoPlaying: this.playing,
+      demoBreadcrumb: breadcrumb,
       statusLabel: status.label,
       turnClass: game.getTurn(),
       terminalLabel: status.over ? status.label : '',
@@ -593,6 +602,7 @@ module.exports = {
   branchPlainText,
   coachPlainText,
   DemoSession,
+  resolveMoves,
   DEMO_START,
   DEMO_END
 }

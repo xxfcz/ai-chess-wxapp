@@ -815,11 +815,20 @@ Page({
     this._coachTimer = setInterval(() => this.updateCoachHint(), 1000)
     debugLog.push('info', '[点评] 请求开始 · ' + (this.data.coachModel || '待选模型') + ' · 局面 ' + fen.slice(0, 40))
 
+    // 阶段一 · Candidate Grounding：请求前预取端上候选（复用已有分析，零额外搜索）
+    let toolCtx = { candidates: [], text: '' }
+    try {
+      toolCtx = await ai.buildToolContext(fen, this._lastResult, { topN: 6 })
+    } catch (e) {
+      debugLog.push('warn', '[点评] 候选预取失败，降级为旧格式：' + ((e && e.message) || e))
+    }
+
     try {
       const text = await ai.requestCoachComment({
         fen: fen,
         sideToMove: this._lastResult.sideToMove,
         lines: this._lastResult.lines,
+        candidateText: toolCtx.text,
         onDelta: value => {
           if (this._destroyed || this._coachCancelled) return
           // 流式期间就把 ===DEMO=== 结构化块剔掉，避免原始 JSON 闪现在正文里
@@ -834,7 +843,20 @@ Page({
         signal: controller ? controller.signal : undefined
       })
       if (this._destroyed || this._coachCancelled) return
-      const parsed = coachDemo.parseDemo(text, this.game.getFen())
+
+      // 阶段一 · 把模型输出的 cand+extend 落地为端上生成的真实走法（cand 非法则就近纠正/降级）
+      let parseText = text
+      try {
+        const ground = await ai.groundDemoLines(text, toolCtx.candidates, fen)
+        if (ground.warnings && ground.warnings.length) {
+          ground.warnings.forEach(w => debugLog.push('warn', '[点评] ' + w))
+        }
+        parseText = ground.text
+      } catch (e) {
+        debugLog.push('warn', '[点评] 演示线落地失败，降级为旧解析：' + ((e && e.message) || e))
+      }
+
+      const parsed = coachDemo.parseDemo(parseText, this.game.getFen())
       // 解析结果留存：退出演示后再次点击记号/分支，可凭它重建会话
       this._demoParsed = parsed.lines.length ? { lines: parsed.lines, rootFen: this.game.getFen() } : null
       this.demo = this._demoParsed

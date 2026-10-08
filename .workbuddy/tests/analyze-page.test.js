@@ -502,6 +502,12 @@ async function main() {
   H.eq(ai.llmErrorInfo({ error: { code: 'quota_exceeded' } }).kind, 'quota', '额度问题单独归类')
   H.ok(ai.llmErrorInfo({ error: { code: 'gateway_network_error' } }).message.indexOf('模型服务') === -1,
     '链路失败不能被说成「模型服务不可用」')
+  // 预览环境网络层回 404（正文 "Not found"）时，必须归类为 notfound 且带 HTTP 404 详情，
+  // 不能把难懂的 "Not found" 直接透出，也不能当成模型故障去换模型重试。
+  const notFound = ai.llmErrorInfo({ message: 'Not found', status: 404 })
+  H.eq(notFound.kind, 'notfound', '404 归类为 notfound')
+  H.ok(notFound.detail.indexOf('HTTP 404') !== -1, '404 详情带 HTTP 状态码')
+  H.eq(ai.shouldTryNextModel({ message: 'Not found', status: 404 }, null), false, '404 不应换模型重试')
 
   H.eq(ai.shouldTryNextModel({ error: { code: 'gateway_timeout' } }), true, '超时值得换模型重试')
   H.eq(ai.shouldTryNextModel({ error: { code: 'gateway_network_error' } }), false, '链路失败重试没意义')
@@ -554,18 +560,20 @@ async function main() {
   H.eq(session.cursor, 1, '前进一步')
   session.step(1)
   H.eq(session.cursor, 2, '走到末步')
-  H.eq(session.view().canForward, false, '末步不能继续前进')
+  H.eq(session.view().demoCanForward, false, '末步不能继续前进')
   session.step(-1)
   H.eq(session.cursor, 1, '后退一步')
-  H.eq(session.view().canBack, true, '非起点可以后退')
+  H.eq(session.view().demoCanBack, true, '非起点可以后退')
 
-  // 已知缺陷：DemoSession.view() 的字段名与模板读的 data 字段不一致
-  // 模板读 demoActive / demoBreadcrumb / demoCanBack / demoCanForward / demoPlaying，
-  // 但 view() 返回的是 active / breadcrumb / canBack / canForward / playing。
-  // 这里把现状钉住，等修好了再改断言。
+  // 字段名统一：view() 现在直接返回模板要读的 demo* 字段（修复已知缺陷）
   const raw = session.view()
-  H.eq(typeof raw.active, 'boolean', '已知缺陷：view() 返回 active 而不是 demoActive')
-  H.eq(typeof raw.demoActive, 'undefined', '已知缺陷：view() 没有产出模板要读的 demoActive')
+  H.eq(typeof raw.demoActive, 'boolean', '修复后：view() 产出 demoActive')
+  H.eq(raw.demoActive, true, '修复后：demoActive 反映进入状态')
+  H.eq(typeof raw.demoCanBack, 'boolean', '修复后：view() 产出 demoCanBack')
+  H.eq(typeof raw.demoCanForward, 'boolean', '修复后：view() 产出 demoCanForward')
+  H.eq(typeof raw.demoPlaying, 'boolean', '修复后：view() 产出 demoPlaying')
+  H.eq(typeof raw.demoBreadcrumb, 'string', '修复后：view() 产出 demoBreadcrumb')
+  H.eq(typeof raw.active, 'undefined', '修复后：旧字段名 active 已不再产出')
 
   /* ------------------------------------------- 11. WXML 模板静态守卫 */
   H.section('11. WXML 模板静态守卫（AGENTS.md §6.4）')
