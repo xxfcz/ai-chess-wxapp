@@ -115,7 +115,11 @@ docs/                            问题排查与修复记录.md（历史排障�
   - `device.js#canRequest()` 探测 `wx.request` 是否存在。
   - `ai-client.js#requestCoachComment()` 入口用它，缺网络时抛 `error.code='env_no_network'`（文案 `ENV_NO_NETWORK_TEXT`）；`describeLLMError()` 负责把它和原始 `TypeError` 都翻成中文。
   - 页面结果写进 `data.cloudReady` / `data.cloudHint`，`analyze.wxml` 据此置灰按钮。
-- **端上引擎分析与 wx 接口无关，任何环境下都必须可用**，不要把它和云端能力绑在一起。
+- **四条保底通道不依赖网络：规则判定、走法生成、演示线、本地评分。** 任何环境下都必须可用
+  （关掉网络也要能用），不要把其中任何一条和云端能力绑在一起。
+  注意这条约束的是**可用性**，不是强度：见 `docs/能力开关与功能矩阵.md` §1.1——
+  本地是一个**弱引擎**（业余棋力），它的定位是冻结的基线而非待优化项，
+  维护成本约等于零，`engine: remote` 接通后自动让位。
 
 ## 9. 测试与质量门禁
 
@@ -141,6 +145,11 @@ node .workbuddy/tests/cloud-adapter.test.js     # UTF-8 编码、原生分块透
 - **改引擎**：只动 `utils/engine.js`，保持 `analyze()` 输出契约（§4）。内部用 `raw_*`，别在搜索树里生 SAN。
 - **改云端点评**：动 `ai-client.js`（提示词/模型/超时/重试）与 `cloud-adapter`（看门狗/降级）；配置在 `cloud-config.js`。遵守 §7，发布前在微信开发者工具执行「构建 npm」。
 - **加新页面/功能**：页面内自查状态，新页面加进 `app.json#pages`，保留 `lazyCodeLoading`。
+- **判断"某个功能在当前环境能不能用"**：查 `docs/能力开关与功能矩阵.md`。能力由**三个独立开关**
+  决定——`engine: local|remote`（端上 JS 引擎 / 远程 Stockfish）、`cloud: off|on`（有无原生云）、
+  `llm: off|light|heavy`（大模型参与度）。**每个功能点按自己依赖哪个开关渲染**，不要问"全局是第几档"。
+  L0~L4 那种线性档位已废弃，文档或代码里出现即视为笔误。`engine` 用 `remote` 不用 `cloud`
+  （后者已被"微信原生云"占用，且远程引擎不止一种实现）。
 - **排查真机/预览问题**：先看界面「运行日志」卡片（环形缓冲）；`onToggleEnableDebug()` 走 `wx.setEnableDebug` 打开真机调试面板（重进小程序才生效）。
 - **Agent 化（Tutor / Sparrer）**：先读 `docs/agent-plan.md`（角色定义、术语表、冻结契约、决策记录），
   再按阶段读 `docs/agent-phase1-tutor.md` / `agent-phase2-react.md` / `agent-phase3-memory.md`。
@@ -161,4 +170,5 @@ node .workbuddy/tests/cloud-adapter.test.js     # UTF-8 编码、原生分块透
 - 环境信息走 `device.js`，永不抛错；能力先探测再降级。
 - 真机缺 `TextDecoder` → `text-codec.js` 兜底，`app.js` 与 `cloud.js` 都要装。
 - 云服务别默认 `auto`（慢 50s+）；快模型排前面；`max_tokens=480`；超时 vs 网络错误分开报。
+- 四条保底通道（规则判定 / 走法生成 / 演示线 / 本地评分）不依赖网络；本地是**弱引擎**不是没引擎，别写「无引擎 / 无法分析」。
 - 改完跑三套测试，全绿再交付。

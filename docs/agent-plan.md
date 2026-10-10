@@ -2,7 +2,8 @@
 
 > 本文档是把现有「国际象棋 AI 分析」小程序升级为**真正 Agent** 的总纲。  
 > 阶段细节见配套的三份文档：  
-> `docs/agent-phase1-tutor.md`（阶段一）· `docs/agent-phase2-react.md`（阶段二）· `docs/agent-phase3-memory.md`（阶段三）
+> `docs/agent-phase1-tutor.md`（阶段一）· `docs/agent-phase2-react.md`（阶段二）· `docs/agent-phase3-memory.md`（阶段三）  
+> 能力分级（三个开关 + 功能矩阵）见 `docs/能力开关与功能矩阵.md`
 >
 > 配套代码：`utils/ai-client.js`、`utils/coach-demo.js`、`utils/engine.js`、`utils/game.js`、`pages/analyze/*`  
 > 测试门禁：`.workbuddy/tests/{engine-and-game,analyze-page,cloud-adapter}.test.js`（现 401 项断言全绿）  
@@ -58,6 +59,7 @@
 | 演示线 | Demo Line  | `demoLine`  | `===DEMO===` 里的可视化分支（沿用现有协议） |
 | 轮次  | Turn       | `turn`      | 一次用户提问到模型最终答复的完整往返           |
 | 预算  | Budget     | `budget`    | 一轮对话允许消耗的工具调用/时间/节点上限        |
+| 保底通道 | Fallback Path | —      | 规则判定 / 走法生成 / 演示线 / 本地评分，四条**不依赖网络**的通道（AGENTS.md §8） |
 
 > 注一：`opponent` 仍可在棋理相关语境里作为普通名词使用（如「对手的王不安全」），  
 > 但**不指代本产品的角色**。角色一律叫 `sparrer`。
@@ -265,7 +267,7 @@ describePosition(fen)
 | 3 | `wx:for` 元素**自身属性**不得引用循环变量 `index` | AGENTS.md §6.4          | 多轮对话气泡列表必踩             |
 | 4 | `wx:key` 用字符串字段，不用 `<block>`        | AGENTS.md §6.4          | 同上                     |
 | 5 | 搜索树内勿用 `moves({verbose:true})`      | AGENTS.md §5            | 工具层的核心性能约束             |
-| 6 | 端上分析必须与云端能力**解耦**                   | AGENTS.md §8            | **工具层不依赖网络，任何环境都必须可用** |
+| 6 | 四条保底通道必须与云端能力**解耦**：规则判定 / 走法生成 / 演示线 / 本地评分 | AGENTS.md §8          | **工具层不依赖网络，任何环境都必须可用** |
 | 7 | 单次会话**锁定同一个模型**                     | 现有 `cachedModelId`      | 多轮下每轮重探模型既慢又贵          |
 | 8 | 重试粒度需从「单次请求」上提到「会话层」                | 现有 `shouldTryNextModel` | 一轮失败 ≠ 整轮对话失败          |
 | 9 | `TextDecoder` 缺失（真机）、流式适配、超时看门狗     | AGENTS.md §7            | 多轮下**每轮都会遇到**          |
@@ -296,6 +298,8 @@ describePosition(fen)
 | D9  | 记忆按 openid 隔离，且**默认可解释**                   | 隐私敏感；用户应能看到画像并能清除                      | 数据结构与 UI                 |  
 | D10 | 阶段二、三**不预先写死函数级改造清单**                      | 代码会变，提前定死将成为维护负担                       | 无（本决策本身就是为了省成本）          |
 | D11 | 内部一律 `FEN + UCI`，**PGN 只在进出边界各转换一次**              | 同一局面经不同路径到达时 PGN 不同但 FEN 相同；用 PGN 当主键会让阶段三错题去重失效（详见 §4.4） | 错题本数据结构与导入导出链路           |
+| D12 | 能力分级用**三个独立开关**：`engine(local\|remote)`、`cloud(off\|on)`、`llm(off\|light\|heavy)`，**不用 L0~L4 线性档位** | 最常见的真实组合「有云 + 有 LLM + 无远程引擎」在线性阶梯里没有位置，按档位判定会把点评入口误隐藏；三者正交，不存在包含关系 | 详见 `docs/能力开关与功能矩阵.md` |
+| D13 | `engine` 的取值用 **`remote`** 不用 `cloud`                | `cloud` 已被「微信原生云 / 云开发」占用；远程引擎的实现路径不止一种（云托管容器 / 自建 VPS / 第三方 API），`remote` 只表达"不在端上跑" | 开关命名与所有按开关渲染的分支     |
 
 ---
 
@@ -312,7 +316,8 @@ describePosition(fen)
    node .workbuddy/tests/cloud-adapter.test.js
    ```
 2. 本阶段新增的测试（阶段一为 `.workbuddy/tests/agent-tools.test.js`）同样全绿；
-3. **端上分析在任何环境下仍可用**（关掉网络也要能用）——这是 AGENTS.md §8 的硬要求。
+3. **四条保底通道在任何环境下仍可用**（关掉网络也要能用）——规则判定、走法生成、演示线、本地评分。
+   这是 AGENTS.md §8 的硬要求；它约束的是可用性而非强度，端上引擎是冻结的基线、不是待优化项。
 
 ### 7.2 当前进度
 
