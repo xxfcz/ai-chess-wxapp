@@ -112,8 +112,8 @@ node .workbuddy/tests/agent-tools.test.js      # 48（阶段一新增）
 | `cloud` | `off` \| `on` | 有无原生云（DB / 存储 / 题库下发） |
 | `llm` | `off` \| `light` \| `heavy` | 大模型参与度 |
 
-- **`engine: remote` 是后续升级项**，两条实现路径：managed container（微信云托管）或 VPS（自建），
-  详见下两节。当前一律 `local`。
+- **`engine: remote` 是后续升级项**，三条实现路径：managed container（微信云托管）、VPS（自建）、
+  第三方 API（chess-api.com，2026-10-13 调研，见下节）。详见下两节。当前一律 `local`。
 - **`remote` 不用 `cloud`**：`cloud` 已被「微信原生云/云开发」占用；远程引擎实现路径不止一种
   （云托管容器 / 自建 VPS / 第三方 API），`remote` 只表达"不在端上跑"。
 - 矩阵中 **`off` 不单列**（off 是基线，单列没有信息量）；图例 ● 完整 / ◐ 降级 / ○ 缺失 / — 不由该开关决定。
@@ -219,3 +219,45 @@ AGENTS.md §8 / §11、`plan §5 表第 6 行`、`plan §7.1 第 3 条`、
 **当前判断**：零用户阶段两者都不建。真要做时**倾向自建**——因为冷启动与算力两项把云托管的
 成本优势抵消掉了，而商业化项目迟早要有一台可控后端（用户系统/题库/付费），自建的边际成本为零。
 无论哪条路，`utils/ai-client.js` 的引擎适配层不变。
+
+## 远端引擎 · chess-api.com 调研（2026-10-13）
+
+**方案文档：`docs/远端引擎接入方案-chess-api.md`**（契约 + 决策 D14~D18 + 待核实 + 验收口径）。
+只调研未动代码。实测结论（curl + node WS 客户端）：
+
+- `POST https://chess-api.com/v1`（REST）/ `wss://chess-api.com/v1`（WS），**免 Key、无文档化限流**，
+  单次约 0.8s；服务端跑 Stockfish 18；个人运营（ChrisC / PayPal 捐赠），无 SLA。
+- **MultiPV 只有 WS 给**：REST 的 `variants` 与 `searchmoves` 均被静默忽略（实测），排除法模拟三线是死路。
+  WS `variants=3` 按 multipv 1/2/3 分线流式推 `type:"move"`，收尾 `type:"bestmove"`（只含第一线）。
+- **错误走 HTTP 200 + body `{"type":"error",...}`**——判错不能看 statusCode。已见 INVALID_FEN /
+  INVALID_INPUT / wrong FEN（轮非行棋方被将军）/ stalemate 时 `extendMoveInfo: move must not be undefined`。
+- **终局局面 API 不校验**（已将死的局面仍返回非法"最佳着法"）→ 必须本地前置判终局再发远端。
+- **`eval`/`mate` 都是白方视角**（黑亏后且轮黑走 → +6.74；轮黑杀棋 → mate="-1"），mate 是**字符串**；
+  换算进行棋方视角：`× (turn==='w'?1:-1)`。`centipawns` 同为字符串。
+- WS 消息体**没有 multipv 字段**，只能从 `debug` 文本 `/multipv (\d+)/` 解析；浅层（depth 1）PV 为空数组，
+  收集时要跳过空 PV。`taskId` 服务端自建**不回显**，关联只能靠单连接串行。
+- WS 有 "public queue" 提示（高峰排队）；同一连接可连续发多次分析（实测复用 OK）。
+- **最大阻塞项是备案**：大陆主体小程序的 request/socket 合法域名要求 ICP 备案，该境外域名几乎确定未备案
+  （沙盘 DNS 被劫持未能最终核实）→ 正式版需走代理（云托管 ≈22 元/月 or 自建）或境外主体直连；
+  联调期用「不校验合法域名」。
+- 定位：`engine: remote` 第一块落点 + 未来陪练（sparrer）走子来源（REST 单着即可）；
+  **不替代本地引擎**，远端失败自动回落本地且降级显形（AGENTS.md §8 铁律）。
+
+## 自建引擎服务器（2026-10-13，用户提供）
+
+- 服务器 `112.121.168.204`（Debian 12，16C/24G，mongodb + graylog 在跑，CPU 2~5%）——
+  **在中国香港**（AS45753 Netsec Limited，ipinfo 实测）。硬件跑 Stockfish 绰绰有余。
+- **安全急事**：实测 22/80/443/27017/9000/12201/8080 均可外网连通；9000 确认是 Graylog Web UI
+  公网暴露（返回 `X-Graylog-Node-ID` 头）。MongoDB 27017 公网暴露是勒索软件头号目标——
+  已要求先 ufw 收口（只开 22/80/443）+ mongod bindIp 127.0.0.1 + graylog 改 SSH 隧道访问。
+- **香港 ⇒ 不能在该机备案**；大陆主体小程序合法域名必须有备案号 → 域名+备案是关键路径（7~20 工作日，
+  Day 0 启动）。备案通过后解析到香港属"备案接入地不一致"的灰色做法（低频抽查风险）；
+  完全合规替代 = 微信云托管反代（≈22 元/月）或引擎迁到大陆轻量服务器。
+- **架构结论**：不把香港机当 chess-api.com 反代，改为**该机直接跑本地 Stockfish**——
+  服务协议与 chess-api.com 同构（REST/WS 同消息形状），客户端只改 baseURL；
+  自建服务额外提供显式 `multipv` 字段（客户端优先用它，回退 debug 正则时即连 chess-api.com）。
+  chess-api.com 降格为「期一联调目标 + 可选兜底上游」。
+- 方案文档：`docs/自建引擎服务部署方案.md`（安全加固命令、Stockfish/Node/Caddy/systemd 部署清单、
+  备案路线图、ingress 三路线对比 A/B/C、验收口径）。总成本 ≈70~170 元/年（服务器 0 元）。
+- 沙盘探测注意：本环境出口走透明代理，ping/TCP 时延不可信（HK connect 1.4ms 是本地代理终止）；
+  IP 归属查询走 https://ipinfo.io/<ip> 可达且可信；备案查询 API 均不可达。
