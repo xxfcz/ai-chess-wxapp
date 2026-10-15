@@ -73,7 +73,11 @@
 
     <!-- 引擎分析 · 三条最佳路线（深度选择与「PV走法」就放在这个 Tab 里） -->
     <view wx:if="{{activeTabKey === 'engine'}}" class="card">
-      <view class="section-title">引擎分析 · 三条最佳路线</view>
+      <view class="row head">
+        <text class="section-title">引擎分析 · 三条最佳路线</text>
+        <view class="gap"></view>
+        <text wx:if="{{engineLabel}}" class="chip {{engineSource === 'remote' ? 'chip-ok' : 'chip-warn'}}">{{engineLabel}}</text>
+      </view>
 
       <view class="row analyze-bar">
         <picker range="{{depthOptions}}" value="{{depthIndex}}" bindchange="onDepthChange">
@@ -108,6 +112,9 @@
 
       <view wx:if="{{analysisMeta}}" class="row meta">
         <text class="muted tiny">{{analysisMeta}}</text>
+      </view>
+      <view wx:if="{{engineNotice}}" class="engine-notice">
+        <text class="tiny">{{engineNotice}}</text>
       </view>
     </view>
 

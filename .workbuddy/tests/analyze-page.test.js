@@ -132,6 +132,13 @@ function injectResult(page, fen) {
 /* ------------------------------------------------------------ 主流程 */
 
 async function main() {
+  /**
+   * 页面回归只验证「端上链路」：默认把引擎开关锁成 local。
+   * 远端路径（POST /v1 映射、回落、熔断）由 remote-engine.test.js 用打桩 wx.request 全覆盖，
+   * 这里若走 remote，打桩的 wx.request 永远不会回调，整个页面会挂在 await 上。
+   */
+  ai.setEngineMode('local')
+
   /* -------------------------------------------------- 1. 打桩环境自检 */
   H.section('1. 打桩环境自检（AGENTS.md §2 / §8）')
 
@@ -635,6 +642,71 @@ async function main() {
   H.eq(appJson.lazyCodeLoading, 'requiredComponents', 'app.json 保留了 lazyCodeLoading')
   H.ok(Array.isArray(appJson.pages) && appJson.pages.indexOf('pages/analyze/analyze') !== -1,
     'pages 列表里包含 analyze 页面')
+
+  /* ------------------------------------- 13. 引擎来源：云端成功 / 降级显形 */
+  H.section('13. 引擎来源标注（云端成功 / 降级显形）')
+
+  const remoteBody = {
+    type: 'bestmove',
+    fen: INITIAL_FEN,
+    turn: 'w',
+    move: 'e2e4',
+    san: 'e4',
+    captured: null,
+    depth: 14,
+    nodes: 12345,
+    elapsedMs: 300,
+    engine: { name: 'Stockfish', version: 'Stockfish 16', source: 'self-hosted' },
+    lines: [
+      { rank: 1, uci: 'e2e4', san: 'e4', from: 'e2', to: 'e4', scoreCp: 24, scoreMate: null, pv: ['e2e4', 'e7e5'], pvSan: ['e4', 'e5'] },
+      { rank: 2, uci: 'd2d4', san: 'd4', from: 'd2', to: 'd4', scoreCp: 18, scoreMate: null, pv: ['d2d4'], pvSan: ['d4'] },
+      { rank: 3, uci: 'g1f3', san: 'Nf3', from: 'g1', to: 'f3', scoreCp: 12, scoreMate: null, pv: ['g1f3'], pvSan: ['Nf3'] }
+    ]
+  }
+
+  /** 造一个 wx：request 由 handler 决定成败，其余沿用打桩最小集 */
+  function makeWxWithRequest(handler) {
+    return {
+      request(options) { handler(options) },
+      setClipboardData(o) { if (o && o.success) o.success() },
+      getAccountInfoSync() { return { miniProgram: { appId: 'wxtest' } } }
+    }
+  }
+
+  ai.setEngineMode('remote')
+  ai.remoteEngine.reset()
+
+  const wxRemote = makeWxWithRequest(options => {
+    options.success({ statusCode: 200, data: remoteBody })
+  })
+  const rp = createPage(wxRemote)
+  rp.game.load(INITIAL_FEN)
+  rp.syncAll()
+  await rp.runAnalyze()
+  H.eq(rp.data.engineSource, 'remote', '云端可用时标记为 remote')
+  H.ok(rp.data.engineLabel.indexOf('云端') === 0, '徽标写明来自云端（带引擎版本）')
+  H.ok(rp.data.engineLabel.indexOf('Stockfish 16') !== -1, '徽标带上服务端报告的引擎版本')
+  H.eq(rp.data.engineNotice, '', '云端可用时不显示降级提示')
+  H.ok(rp.data.analysisMeta.indexOf('云端') !== -1, '元信息行写明结果来自云端')
+  H.eq(rp.data.analysisLines.length, 3, '云端三线照常展示')
+
+  ai.remoteEngine.reset()
+  const wxDown = makeWxWithRequest(options => {
+    options.fail({ errMsg: 'request:fail timeout' })
+  })
+  const dp = createPage(wxDown)
+  dp.game.load(INITIAL_FEN)
+  dp.syncAll()
+  await dp.runAnalyze()
+  H.eq(dp.data.engineSource, 'local', '云端超时后落到本地')
+  H.ok(dp.data.engineLabel.indexOf('本地') !== -1, '徽标切成本地引擎')
+  H.ok(dp.data.engineNotice.indexOf('本地引擎') !== -1, '降级提示说清楚已改用本地引擎')
+  H.ok(dp.data.engineNotice.indexOf('评分仅供参考') !== -1, '降级提示说明评分精度下降')
+  H.eq(dp.data.analysisLines.length, 3, '降级后仍然出三条线（端上保底通道）')
+  H.eq(dp._engineDegraded, true, '页面记住了已降级状态，不会每次走子都弹提示')
+
+  ai.setEngineMode('local')
+  ai.remoteEngine.reset()
 
   return H.summary('analyze-page.test.js')
 }

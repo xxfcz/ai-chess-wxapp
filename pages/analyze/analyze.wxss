@@ -437,6 +437,28 @@
   margin-top: 4rpx;
 }
 
+/* 引擎来源徽标：云端可用为绿，已降级到本地为琥珀 */
+.chip-ok {
+  color: #35c26b;
+  border-color: #2f6b45;
+}
+
+.chip-warn {
+  color: #e8a34f;
+  border-color: #6b542f;
+}
+
+/* 降级提示：常驻在元信息下方，说明当前缺哪个能力、评分会差多少 */
+.engine-notice {
+  margin-top: 10rpx;
+  padding: 12rpx 16rpx;
+  border-radius: 12rpx;
+  border: 2rpx solid #6b542f;
+  background-color: #2a2418;
+  color: #e8a34f;
+  line-height: 1.6;
+}
+
 /* 分数配色：白方视角为正 */
 .tone-white {
   color: #35c26b;

@@ -48,6 +48,12 @@ Page({
     analysisLines: [],
     analysisMeta: '',
     analysisError: '',
+    /** 本次结果实际来自哪里：'remote' 云端 Stockfish / 'local' 端上引擎 */
+    engineSource: '',
+    /** 引擎徽标文案（远端时带引擎版本，如「云端 Stockfish 16」） */
+    engineLabel: '',
+    /** 降级提示：云端不可用并已改用本地引擎时非空（降级必须显形） */
+    engineNotice: '',
     hintIndex: -1,
     evalPercent: 50,
     evalLabel: '0.00',
@@ -117,6 +123,8 @@ Page({
     this._coachController = null
     this._coachCancelled = false
     this._coachStartedAt = 0
+    /** 引擎是否已处于降级状态：只在状态翻转时提醒一次，避免每次走子都弹提示 */
+    this._engineDegraded = false
     this.demo = null
     this._demoParsed = null   // 最近一次点评解析出的演示线（退出演示后可凭它重建会话）
     this._realFocus = []      // 真实棋盘上的「位置焦点」高亮（点评里点到的格子/棋子）
@@ -453,6 +461,7 @@ Page({
       analysisLines: [],
       analysisMeta: '',
       analysisError: '',
+      engineNotice: '',
       evalPercent: 50,
       evalLabel: '0.00',
       coachText: '',
@@ -527,6 +536,7 @@ Page({
       analysisLines: [],
       analysisMeta: '',
       analysisError: '',
+      engineNotice: '',
       evalPercent: 50,
       evalLabel: '0.00',
       coachText: '',
@@ -623,20 +633,23 @@ Page({
 
       const lines = this.buildLineViews(result.lines, sideToMove)
       const best = result.lines.length ? ai.formatScore(result.lines[0], sideToMove) : null
+      const src = ai.describeEngineSource(result)
 
       this._lastResult = result
       this._analysisFen = fen
 
       this.setData({
         analysisLines: lines,
-        analysisMeta: result.terminal
-          ? '局面已结束'
-          : '深度 ' + result.depth + ' · ' + result.nodes + ' 节点 · ' + result.elapsedMs + 'ms',
+        analysisMeta: this.buildAnalysisMeta(result, src),
+        engineSource: src.source,
+        engineLabel: src.label,
+        engineNotice: src.notice,
         terminalLabel: result.terminal ? result.terminal.label : this.data.terminalLabel,
         evalPercent: best ? ai.evalPercent(best.whiteCp) : 50,
         evalLabel: best ? best.text : '—',
         hintIndex: -1
       })
+      this.noticeEngineDegrade(src, result)
       this.hint = null
       this.syncAll()
     } catch (err) {
@@ -648,6 +661,39 @@ Page({
     } finally {
       if (!this._destroyed) this.setData({ analyzing: false })
     }
+  },
+
+  /**
+   * 分析结果的元信息行：把「这次结果谁给的」写在最前面，
+   * 远端会带上引擎版本，本地则明确是本地引擎——不写清楚用户会以为两者是一回事。
+   */
+  buildAnalysisMeta(result, src) {
+    if (result.terminal) return '局面已结束'
+    const tag = (src && src.label) || '引擎'
+    return tag + ' · 深度 ' + result.depth + ' · ' + result.nodes + ' 节点 · ' + result.elapsedMs + 'ms'
+  },
+
+  /**
+   * 引擎降级的提醒。只在状态翻转时弹一次 toast + 记一条日志：
+   * 自动分析每次走子都跑，逐次提醒会变成噪音；但界面上的 engineNotice 一直挂着，
+   * 用户随时能在「引擎分析」Tab 看到当前到底是什么状态。
+   */
+  noticeEngineDegrade(src, result) {
+    if (!(src && src.degraded)) {
+      if (this._engineDegraded) {
+        this._engineDegraded = false
+        device.toast('云端引擎已恢复')
+        debugLog.push('info', '[引擎] 云端引擎已恢复 · ' + (src.label || ''))
+      }
+      return
+    }
+    if (this._engineDegraded) return
+    this._engineDegraded = true
+    device.toast('云端引擎不可用，已改用本地引擎')
+    debugLog.push('warn', '[引擎] 已降级到本地 · ' +
+      ((result && result.degradedFrom) || '') +
+      (result && result.degradedReason ? ' · ' + result.degradedReason : '') +
+      (result && result.degradedDetail ? ' · ' + result.degradedDetail : ''))
   },
 
   /** 点击路线 → 在棋盘上预览该走法 */

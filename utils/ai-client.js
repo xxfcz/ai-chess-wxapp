@@ -9,7 +9,9 @@
  * 本文件与页面都不需要改动。
  */
 const engine = require('./engine')
+const remoteEngine = require('./remote-engine')
 const device = require('./device')
+const debugLog = require('./debug-log')
 const tools = require('./tools')
 const coachDemo = require('./coach-demo')
 const { Chess } = require('./chess.js')
@@ -118,17 +120,87 @@ function buildCandidates(models) {
 /* ------------------------------------------------------------ 引擎分析 */
 
 /**
- * @param {object} params { fen, depth, multiPV, onProgress }
- * @returns {Promise<object>} engine.analyze 的结果
+ * 能力开关 `engine`（docs/能力开关与功能矩阵.md）：
+ *   - `remote`：优先云端 Stockfish，失败/超时自动回落端上（默认）；
+ *   - `local`：只用端上引擎（离线、自检、或不想依赖网络时）。
+ *
+ * 注意它调的是**强度**不是有无：两端都有引擎，`local` 是一个弱引擎，不是没有引擎。
  */
-function analyzePosition(params) {
+let engineMode = 'remote'
+
+function setEngineMode(mode) {
+  engineMode = mode === 'local' ? 'local' : 'remote'
+}
+
+function getEngineMode() {
+  return engineMode
+}
+
+/**
+ * @param {object} params { fen, depth, multiPV, onProgress }
+ * @returns {Promise<object>} engine.analyze 的结果，额外带 `source`（'remote' | 'local'）
+ *
+ * 远端路径内部已包含终局拦截、失败回落与熔断，正常不抛错；
+ * 真抛了（非法 FEN 之类）也再给本地一次机会，保证界面不空。
+ */
+async function analyzePosition(params) {
   const p = params || {}
-  return engine.analyze({
+  const opts = {
     fen: p.fen,
     depth: p.depth,
     multiPV: p.multiPV || 3,
     onProgress: p.onProgress
-  })
+  }
+
+  if (engineMode === 'remote') {
+    try {
+      return await remoteEngine.analyze(opts)
+    } catch (err) {
+      debugLog.push('warn', '[引擎] 远端请求被拒绝，改用本地引擎 · ' +
+        ((err && (err.code || err.message)) || 'unknown'))
+    }
+  }
+
+  const local = await engine.analyze(opts)
+  return Object.assign({}, local, { source: 'local' })
+}
+
+/**
+ * 把分析结果翻译成界面要显示的三件事：来源徽标文案 + 降级提示。
+ *
+ * 「降级必须显形」（能力开关文档铁律 3）：远端挂了不能静默变成本地结果，
+ * 必须在界面上说清楚缺了什么、评分精度会下降。
+ *
+ * @param {object} result analyzePosition 的结果
+ * @returns {{ source:string, label:string, notice:string, degraded:boolean }}
+ */
+function describeEngineSource(result) {
+  const r = result || {}
+  const remote = r.source === 'remote'
+  let label = remote ? '云端引擎' : '本地引擎'
+  if (remote && r.engineVersion) label = '云端 ' + r.engineVersion
+
+  let notice = ''
+  if (!remote && r.degradedFrom) {
+    if (r.degradedFrom === 'ENV_NO_NETWORK') {
+      notice = '当前环境不允许网络请求，已使用本地引擎（棋力较弱，评分仅供参考）。'
+    } else if (r.degradedFrom === 'GATEWAY_BLOCK') {
+      // 开发预览域名在微信内（预览/真机）不允许直连：不是服务器故障，是平台限制。
+      // 正式版需用自有已备案域名部署引擎服务（路线 C），详见 docs/自建引擎服务部署方案.md
+      notice = '当前引擎后端为开发预览域名，微信内（预览/真机）不允许直接访问，' +
+        '已改用本地引擎（棋力较弱，评分仅供参考）。正式版请改用自有已备案域名部署引擎服务。'
+    } else {
+      notice = '云端引擎' + remoteEngine.reasonText(r.degradedFrom) +
+        '，已自动改用本地引擎（棋力较弱，评分仅供参考）。'
+    }
+  }
+
+  return {
+    source: remote ? 'remote' : 'local',
+    label: label,
+    notice: notice,
+    degraded: !!notice
+  }
 }
 
 /* ------------------------------------------------------------ 分数展示 */
@@ -755,6 +827,10 @@ function resetModelChoice() {
 
 module.exports = {
   analyzePosition,
+  setEngineMode,
+  getEngineMode,
+  describeEngineSource,
+  remoteEngine,
   formatScore,
   evalPercent,
   buildLineView,

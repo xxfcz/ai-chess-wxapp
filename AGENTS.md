@@ -6,8 +6,10 @@
 
 微信原生小程序「国际象棋 AI 分析」：
 
-- 用户粘贴 **FEN** → 在 `pages/analyze` 用 **视图棋盘** 对弈/模拟 → 端上引擎给出 **三条最佳路线（MultiPV=3）** 分析 → 可选 **云端 AI 教练** 用大模型生成中文局面点评。
-- 分析引擎是**端上纯 JS**（Alpha-Beta + 静态评估 + 静态搜索），**不依赖云端 Stockfish、不使用 web-view**。
+- 用户粘贴 **FEN** → 在 `pages/analyze` 用 **视图棋盘** 对弈/模拟 → 引擎给出 **三条最佳路线（MultiPV=3）** 分析 → 可选 **云端 AI 教练** 用大模型生成中文局面点评。
+- 分析有两条实现：**云端 Stockfish**（`engine: remote`，默认，走自建 `ai-chess-server` 的 `POST /v1`）与
+  **端上纯 JS 引擎**（`engine: local`，Alpha-Beta + 静态评估 + 静态搜索，弱但离线可用）。
+  远端不可用时**自动回落端上**，界面必须标注实际来源（见 §4.1）。
 - 云服务只用于「AI 教练点评」（流式 LLM），走云服务内置的大模型网关，**免 API Key**。
 
 云服务应用 id：`wbapp_Q0BvUcC34QxiYVHs0aFeay`（appType=miniprogram，名称「国象AI分析」）。
@@ -33,6 +35,7 @@ pages/analyze/                    唯一页面：analyze.{js,wxml,wxss,json}
 utils/
   chess.js                         chess.js 0.10.3 本地副本 + 末尾追加 raw_* 扩展（见 §5）
   engine.js                       端上 Alpha-Beta 引擎，analyze() 是对外契约（见 §4）
+  remote-engine.js                云端引擎适配层：POST /v1 → 同一份契约 + 失败回落本地（见 §4.1）
   game.js                         棋局状态管理（载入/FEN/走子/悔棋/终局/自由模拟双方）
   board-model.js                  棋局状态 → 棋盘视图数据（纯函数）
   geometry.js                     坐标换算（cell↔square、亮暗格、行列）
@@ -61,6 +64,23 @@ docs/                            问题排查与修复记录.md（历史排障�
 - 分数是**行棋方视角**（UCI 惯例，>0 表示该方占优）。界面在 `ai-client.js#formatScore` 换算成白方视角。
 - 换真实引擎时**只替换 `utils/engine.js`**，上层 `ai-client` 与页面不动。
 - `terminal` 为终局对象 `{ over, inCheck, winner, reason, label }`（见 `game.js#status`）。
+
+### 4.1 云端引擎（engine: remote，当前默认）
+
+`utils/remote-engine.js` 调自建服务 `POST https://ai-chess-server.app.workbuddy.host/v1`，
+**输出同一份契约**，只多 `source` / `engineVersion` / `remote` 三个字段。调用收口在
+`ai-client.js#analyzePosition`，页面只读 `source` 相关的展示字段。
+
+- **判错一律看 `body.type === 'error'`**（HTTP 200 也会报错体），不看 statusCode。
+- **分数只用 `lines[].scoreCp` / `scoreMate`**（服务端已换成行棋方视角）；顶层 `eval` / `centipawns` /
+  `mate` 是白方视角，别拿去直接用。
+- **失败必须回落本地且显形**：结果带 `source:'local'` + `degradedFrom`，页面据此显示降级提示
+  （`ai-client.js#describeEngineSource`）。不许静默切换。
+- **终局 / 非法 FEN 本地前置拦截**，不浪费一次往返。
+- **连续失败 2 次即熔断 60 秒**，期间直接走本地，避免每次自动分析都干等网络超时。
+- 服务端契约与字段口径：`E:\WorkBuddy\ai-chess-server\docs\05-小程序接入协议.md`（唯一权威）。
+- ⚠️ `app.workbuddy.host` 是**联调域名，正式版不能依赖**：小程序 request 合法域名要求 ICP 备案，
+  发布前必须换成自己的已备案域名（只改 `remote-engine.js` 的 `DEFAULT_ENDPOINT`，或 `configure()`）。
 
 ## 5. chess.js 本地副本的关键约定
 
@@ -129,20 +149,28 @@ docs/                            问题排查与修复记录.md（历史排障�
 node .workbuddy/tests/engine-and-game.test.js   # raw 接口一致性、规则层、终局、引擎输出与超时降级
 node .workbuddy/tests/analyze-page.test.js      # 页面初始化、走子(拖/点)、历史、FEN、自动分析、云端点评与错误分支、模板可渲染性静态守卫
 node .workbuddy/tests/cloud-adapter.test.js     # UTF-8 编码、原生分块透传、降级、中止探测不判负、看门狗等
+node .workbuddy/tests/agent-tools.test.js       # 阶段一工具层与演示线落地
+node .workbuddy/tests/remote-engine.test.js     # 云端引擎：字段映射、分数视角、终局拦截、回落显形、熔断
 ```
 
-- 改完引擎或页面后**跑这三套，全绿再交付**。
+- 改完引擎或页面后**跑这几套，全绿再交付**。
+- **页面回归默认把引擎开关锁成 `local`**（`ai.setEngineMode('local')`）：打桩的 `wx.request`
+  永远不会回调，走 remote 会让整个页面挂在 `await` 上、进程静默退出。远端路径由
+  `remote-engine.test.js` 与 `analyze-page.test.js` 第 13 节（自带可控 wx 打桩）覆盖。
 - `analyze-page.test.js` 的打桩环境**故意不提供** `createSelectorQuery`/`getWindowInfo`/`getSystemInfoSync`，重新引入这些接口会当场红。
 - 实网探针（需网络、消耗少量云服务额度，**不属常规回归**，按需跑）：
   - `cloud-live-probe.js`：真实云服务 + 模拟「不支持分块流式」的 wx，验证点评链路端到端。
   - `cloud-model-probe.js`：用真实提示词跑一次，看实际服务模型/耗时/请求明细。
   - `cloud-model-bench.js [模型id ...]`：逐个比候选模型耗时（选型结论靠它复现）。
   - `cloud-realdevice-probe.js`：模拟「原生分块可用 + 无全局 TextDecoder」的真机形态，跑真实云服务验证真机链路。
+  - `remote-engine-live-probe.js`：真连 `ai-chess-server`（含杀棋/终局/服务不可达回落），验证云端引擎端到端。不消耗云服务额度，只消耗自建服务算力。
 
 ## 10. 常见任务指引
 
 - **改棋盘渲染**：动 `board-model.js`（视图数据）与 `analyze.wxml/wxss`。遵守 §6.1–§6.4；坐标换算走 `geometry.js`。
-- **改引擎**：只动 `utils/engine.js`，保持 `analyze()` 输出契约（§4）。内部用 `raw_*`，别在搜索树里生 SAN。
+- **改引擎**：端上只动 `utils/engine.js`，云端只动 `utils/remote-engine.js`，两边都保持 `analyze()` 输出契约（§4 / §4.1）。内部用 `raw_*`，别在搜索树里生 SAN。
+- **换云端引擎地址**：改 `utils/remote-engine.js` 的 `DEFAULT_ENDPOINT`（正式版必须换成自己的已备案域名），
+  或运行时 `remoteEngine.configure({ endpoint })`。**不要**把它写进 `cloud-config.js`——那是云服务 LLM 的凭据位。
 - **改云端点评**：动 `ai-client.js`（提示词/模型/超时/重试）与 `cloud-adapter`（看门狗/降级）；配置在 `cloud-config.js`。遵守 §7，发布前在微信开发者工具执行「构建 npm」。
 - **加新页面/功能**：页面内自查状态，新页面加进 `app.json#pages`，保留 `lazyCodeLoading`。
 - **判断"某个功能在当前环境能不能用"**：查 `docs/能力开关与功能矩阵.md`。能力由**三个独立开关**
