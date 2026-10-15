@@ -172,6 +172,8 @@ isCapture/isCastling/isPromotion/promotion/captured, continuation(前两手解�
   连接 10s / 总时长 20s / 消息空闲 8s（收到 info/log/queue 消息重置空闲计时）。
 - **隐私**：Socket 与 Request 均不在《隐私接口》清单，不新增声明；只发 FEN，不含个人信息。
 
+
+
 ---
 
 ## 6. 法务与运维风险
