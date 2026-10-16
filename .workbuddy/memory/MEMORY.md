@@ -87,8 +87,15 @@ coach-demo.test.js        # 独立脚本（非 harness），打印 PASS/FAIL
 
 ## 云端引擎 `engine: remote`（2026-10-15 已落地）
 
-- 实现：`utils/remote-engine.js` → `POST https://ai-chess-server.app.workbuddy.host/v1`（自建服务，
-  Stockfish 16）。调用收口 `ai-client.js#analyzePosition`（`setEngineMode('local'|'remote')`，默认 remote）。
+- 实现：`utils/remote-engine.js` → `POST {endpoint}/v1`，当前 `https://chess.imex.de5.net`
+  （2026-10-16 从 `ai-chess-server.app.workbuddy.host` → 自建香港机 → 自有域名；Stockfish **15.1**，
+  进程池 8；端到端 400~900ms）。调用收口 `ai-client.js#analyzePosition`（默认 remote）。
+- **端点不写死**：`utils/engine-config.js` 按 `override > storage > .env注入 > 内置默认` 解析。
+  改地址流程：改 `.env` → `npm run config:engine` → 生成 `utils/engine-config.build.js` → 重新编译
+  （小程序运行时读不到 process.env/.env；**生成文件必须提交**，`.env` 进 .gitignore）。
+  develop 版优先用 `ENGINE_ENDPOINT_DEV`（可 http+IP:端口），release/trial 只走正式 https。
+  地址非 http(s)/空值一律当没配、回落到下一级。详见 `AGENTS.md §4.2`。
+- 自建机 `POST /v1` **不带 engine 字段**，版本从 `GET /healthz` 并行懒探一次并缓存（失败静默）。
   契约与 `engine.js#analyze()` 同构，只多 `source` / `engineVersion` / `remote`。
 - **协议唯一权威**：`E:\WorkBuddy\ai-chess-server\docs\05-小程序接入协议.md`。要点：
   判错一律看 `body.type === 'error'`（HTTP 200 也会报错体）／**只用 `lines[].scoreCp`/`scoreMate`**

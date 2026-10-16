@@ -45,6 +45,16 @@ function calls() {
   return (global.wx && global.wx.__calls) || []
 }
 
+/** 分析请求（POST /v1）——版本探测是另一个 GET，统计请求次数时别混在一起 */
+function analysisCalls() {
+  return calls().filter(c => c.method === 'POST')
+}
+
+/** 版本探测请求（GET /healthz） */
+function probeCalls() {
+  return calls().filter(c => c.url.indexOf('/healthz') !== -1)
+}
+
 /** 假本地引擎：不跑真搜索（真搜索要几百毫秒且与环境负载相关） */
 function fakeLocal(extra) {
   return async function (opts) {
@@ -120,6 +130,16 @@ function okBody(overrides) {
   }, overrides || {})
 }
 
+/**
+ * 自建服务（112.121.168.204:8787）的 `POST /v1` 实测**不带** engine 字段，
+ * 版本只能从 `GET /healthz` 拿——这一组用例就按真实形态造。
+ */
+function noEngineBody() {
+  const body = okBody()
+  delete body.engine
+  return body
+}
+
 function respondWith(body, statusCode) {
   installWx(options => {
     options.success({ statusCode: statusCode || 200, data: body })
@@ -136,11 +156,11 @@ async function main() {
   respondWith(okBody())
   let r = await remote.analyze({ fen: MIDDLE_FEN, depth: 3, multiPV: 3 })
 
-  H.eq(calls().length, 1, '只发一次请求')
-  H.eq(calls()[0].url, remote.DEFAULT_ENDPOINT + '/v1', 'POST 到 /v1（不走 WebSocket）')
-  H.eq(calls()[0].method, 'POST', '方法是 POST')
-  H.eq(calls()[0].timeout, remote.REQUEST_TIMEOUT_MS, '带上了请求超时')
-  const payload = JSON.parse(calls()[0].data)
+  H.eq(analysisCalls().length, 1, '只发一次分析请求')
+  H.eq(analysisCalls()[0].url, remote.DEFAULT_ENDPOINT + '/v1', 'POST 到 /v1（不走 WebSocket）')
+  H.eq(analysisCalls()[0].method, 'POST', '方法是 POST')
+  H.eq(analysisCalls()[0].timeout, remote.REQUEST_TIMEOUT_MS, '带上了请求超时')
+  const payload = JSON.parse(analysisCalls()[0].data)
   H.eq(payload.fen, MIDDLE_FEN, 'FEN 原样送出')
   H.eq(payload.variants, 3, 'variants 与 multiPV 一致')
   H.ok(payload.depth >= 1 && payload.depth <= 30, 'depth 在服务端范围内（1~30）')
@@ -310,7 +330,7 @@ async function main() {
     options.success({ statusCode: 429, data: { type: 'error', error: 'RATE_LIMITED', text: 'slow down' } })
   })
   r = await remote.analyze({ fen: MIDDLE_FEN, multiPV: 3 })
-  H.eq(calls().length, 2, '限流后退避重试一次（共两次请求）')
+  H.eq(analysisCalls().length, 2, '限流后退避重试一次（共两次分析请求）')
   H.eq(r.degradedFrom, 'RATE_LIMITED', '仍失败则回落本地并标记限流')
 
   /* ------------------------------------------------------------ 6. 熔断 */
@@ -341,6 +361,38 @@ async function main() {
   r = await remote.analyze({ fen: MIDDLE_FEN, multiPV: 3 })
   H.eq(r.source, 'remote', '服务端恢复后自动切回云端')
   H.eq(remote.state().failStreak, 0, '恢复后失败计数清零')
+
+  /* ---------------------------------------------------- 6.1 版本探测 */
+  H.section('6.1 引擎版本：/v1 不带时从 GET /healthz 补（只探一次）')
+
+  resetEnv()
+  remote.setFallback(fakeLocal())
+  installWx(options => {
+    if (options.url.indexOf('/healthz') !== -1) {
+      options.success({
+        statusCode: 200,
+        data: { status: 'ok', engine: { binary: '/opt/stockfish', version: 'Stockfish 15.1', ok: true } }
+      })
+    } else {
+      options.success({ statusCode: 200, data: noEngineBody() })
+    }
+  })
+  r = await remote.analyze({ fen: MIDDLE_FEN, multiPV: 3 })
+  H.eq(probeCalls().length, 1, '首次分析并行探一次 /healthz')
+  H.eq(r.source, 'remote', '探测不影响分析结果')
+  H.eq(r.engineVersion, 'Stockfish 15.1', '版本填进结果（徽标显示「云端 Stockfish 15.1」）')
+  await remote.analyze({ fen: MIDDLE_FEN, multiPV: 3 })
+  H.eq(probeCalls().length, 1, '版本缓存后不再重复探测')
+
+  resetEnv()
+  remote.setFallback(fakeLocal())
+  installWx(options => {
+    if (options.url.indexOf('/healthz') !== -1) options.fail({ errMsg: 'request:fail timeout' })
+    else options.success({ statusCode: 200, data: noEngineBody() })
+  })
+  r = await remote.analyze({ fen: MIDDLE_FEN, multiPV: 3 })
+  H.eq(r.source, 'remote', '版本探测失败不影响分析（不因此回落本地）')
+  H.eq(r.engineVersion, '', '探测失败时版本留空（徽标退化成「云端引擎」）')
 
   /* -------------------------------------------------------- 7. 契约一致 */
   H.section('7. 与端上 engine.js 契约一致（AGENTS.md §4 冻结）')

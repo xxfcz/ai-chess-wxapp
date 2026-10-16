@@ -24,13 +24,22 @@ const device = require('./device')
 const { Chess } = require('./chess.js')
 const localEngine = require('./engine')
 const debugLog = require('./debug-log')
+const engineConfig = require('./engine-config')
 
 /**
- * 联调域名。⚠️ `app.workbuddy.host` 是平台分配的开发/演示域名，
- * **正式版不能依赖它**：小程序 request 合法域名要求 ICP 备案，发布前必须换成自己的已备案域名。
- * 换域名只改这一处（或调用 configure({ endpoint })）。
+ * 端点**不写死在这里**：由 `utils/engine-config.js` 解析，顺序是
+ * 代码覆盖 > 本地缓存 > `.env`（编译进 engine-config.build.js）> 内置默认。
+ * 换地址改 `.env` 后跑 `npm run config:engine` 即可，不用动本文件。
+ *
+ * 内置默认 = 正式环境 `https://chess.imex.de5.net`（https + 域名，满足小程序 request 合法域名要求）；
+ * 开发版默认走 `.env` 里的 `ENGINE_ENDPOINT_DEV`（可以是 http + 裸 IP + 端口，
+ * **只在「开发者工具 / 真机调试 + 不校验合法域名」下可用**，正式版不能用）。
+ *
+ * 换地址后针对旧地址的环境屏蔽判定会作废（见 configure()），熔断计数也会在下一次成功时清零。
  */
-const DEFAULT_ENDPOINT = 'https://ai-chess-server.app.workbuddy.host'
+const RESOLVED = engineConfig.resolveEndpoint()
+const DEFAULT_ENDPOINT = RESOLVED.endpoint
+const DEFAULT_ENDPOINT_FROM = RESOLVED.from
 /** 单次请求上限：正常端到端 0.3~1.0s，给到 10s 已经很宽；超时即回落本地 */
 const REQUEST_TIMEOUT_MS = 10000
 /** 兜底参数：UI 深度没给（或给了意外值）时用这一组 */
@@ -75,12 +84,13 @@ const REASON_TEXT = {
   NETWORK: '连接失败',
   ENV_NO_NETWORK: '当前环境不允许网络请求',
   BAD_RESPONSE: '返回内容异常',
-  GATEWAY_BLOCK: '后端域名不可访问',
+  GATEWAY_BLOCK: '后端地址不可访问',
   CIRCUIT_OPEN: '暂时不可用'
 }
 
 let endpoint = DEFAULT_ENDPOINT
-let timeoutMs = REQUEST_TIMEOUT_MS
+let endpointFrom = DEFAULT_ENDPOINT_FROM
+let timeoutMs = engineConfig.resolveTimeoutMs() || REQUEST_TIMEOUT_MS
 /** 回落实现：默认端上引擎；测试可替换成假实现，避免跑真搜索 */
 let fallbackFn = null
 let failStreak = 0
@@ -92,6 +102,15 @@ let lastCode = ''
  */
 let permanentlyBlocked = false
 let blockedNotified = false
+/**
+ * 引擎版本：`POST /v1` 的响应体**不带** engine 字段，只有 `GET /healthz` 给
+ * （`{ engine: { version: 'Stockfish 15.1' } }`）。版本只用于徽标文案，
+ * 所以只探一次、结果缓存；探测失败一律静默（徽标退化成「云端引擎」），**不影响分析**。
+ */
+let cachedVersion = ''
+let versionProbe = null
+/** 端点只在首次分析时记一条日志（来源写清楚，排查「到底连的哪个地址」就靠它） */
+let endpointLogged = false
 
 function clamp(value, min, max, fallback) {
   const n = Number(value)
@@ -108,6 +127,9 @@ function configure(options) {
     // 换了域名，之前针对旧域名的环境屏蔽判定作废（新域名也许能通）
     permanentlyBlocked = false
     blockedNotified = false
+    // 换了服务端，版本要重新探
+    cachedVersion = ''
+    versionProbe = null
   }
   if (isFinite(Number(o.timeoutMs)) && Number(o.timeoutMs) > 0) {
     timeoutMs = Math.round(Number(o.timeoutMs))
@@ -121,13 +143,19 @@ function setFallback(fn) {
 
 /** 恢复出厂配置（自检用） */
 function reset() {
-  endpoint = DEFAULT_ENDPOINT
-  timeoutMs = REQUEST_TIMEOUT_MS
+  // 重新读一遍外部配置：换了生成文件或本地缓存后，reset 就能生效
+  engineConfig.reload()
+  const cfg = engineConfig.resolveEndpoint()
+  endpoint = cfg.endpoint
+  endpointFrom = cfg.from
+  timeoutMs = engineConfig.resolveTimeoutMs() || REQUEST_TIMEOUT_MS
   failStreak = 0
   circuitOpenUntil = 0
   lastCode = ''
   permanentlyBlocked = false
   blockedNotified = false
+  cachedVersion = ''
+  versionProbe = null
 }
 
 /** 熔断是否生效：生效期间直接走本地，不再发请求 */
@@ -138,6 +166,7 @@ function circuitOpen() {
 function state() {
   return {
     endpoint: endpoint,
+    endpointFrom: endpointFrom,
     timeoutMs: timeoutMs,
     failStreak: failStreak,
     circuitOpen: circuitOpen(),
@@ -217,6 +246,37 @@ function post(payload) {
   })
 }
 
+/** 探测一次引擎版本（GET /healthz）。不抛错、不阻塞：失败返回 '' */
+function get(url) {
+  return new Promise(resolve => {
+    const host = typeof wx !== 'undefined' ? wx : null
+    if (!host || typeof host.request !== 'function') {
+      resolve(null)
+      return
+    }
+    host.request({
+      url: url,
+      method: 'GET',
+      timeout: Math.min(timeoutMs, 3000),
+      success: res => resolve(res && res.data ? res.data : null),
+      fail: () => resolve(null)
+    })
+  })
+}
+
+function fetchEngineVersion() {
+  if (versionProbe) return versionProbe
+  versionProbe = get(endpoint + '/healthz').then(data => {
+    const body = typeof data === 'string' ? parseBody({ data: data }) : data
+    const v = body && body.engine && typeof body.engine.version === 'string'
+      ? body.engine.version
+      : ''
+    cachedVersion = v
+    return v
+  }).catch(() => '')
+  return versionProbe
+}
+
 /* ------------------------------------------------------------ 响应映射 */
 
 function numOrNull(value) {
@@ -259,7 +319,8 @@ function normalize(body, requested, multiPV, startedAt) {
   const engineInfo = b.engine || {}
   return {
     engine: 'stockfish',
-    engineVersion: typeof engineInfo.version === 'string' ? engineInfo.version : '',
+    // /v1 不带 engine 字段时，用 healthz 探到的版本（没有就留空，徽标退化成「云端引擎」）
+    engineVersion: typeof engineInfo.version === 'string' ? engineInfo.version : cachedVersion,
     fen: b.fen || requested.fen,
     depth: Number(b.depth) || 0,
     nodes: Number(b.nodes) || 0,
@@ -342,12 +403,12 @@ function reasonText(code) {
 }
 
 /**
- * 环境级屏蔽判定：不是服务端抖动，而是「这个微信运行环境根本不允许访问该域名」。
- * 两种触发（均为平台/网关行为，重试一定得到同样结果）：
+ * 环境级屏蔽判定：不是服务端抖动，而是「这个微信运行环境根本不允许访问该地址」。
+ * 几种已实测的触发（均为平台/网关行为，重试一定得到同样结果）：
  *   1) H5 预览：wx.request 只允许 /.cloud/ 路径，其余一律 fail('...path not allowed')；
- *   2) 真机：CloudStudio 开发预览域名的网关识别到微信移动端 UA，
- *      返回 HTTP 403 + HTML「请在浏览器中打开」（实测：裸 microMessenger UA 不拦，
- *      完整 iPhone MicroMessenger UA 才拦）。
+ *   2) 真机：域名未配进 request 合法域名，或前置网关识别到微信移动端 UA，
+ *      返回 HTTP 403 + HTML「请在浏览器中打开」（CloudStudio 预览域名实测如此：
+ *      裸 microMessenger UA 不拦，完整 iPhone MicroMessenger UA 才拦）。
  * 命中后本次会话不要再重试，否则只是把「返回内容异常」刷屏。
  */
 function isEnvironmentBlock(err, res) {
@@ -369,9 +430,9 @@ async function asBlockedLocal(opts) {
   if (!blockedNotified) {
     blockedNotified = true
     debugLog.push('info',
-      '[引擎] 当前后端域名在微信内不可访问（开发预览域名限制：预览只允许 /.cloud/ 路径、' +
-      '真机微信 UA 被网关拦截）。已改用本地引擎（棋力较弱，评分仅供参考）。' +
-      '正式版请改用自有已备案域名部署引擎服务。')
+      '[引擎] 当前后端地址 ' + endpoint + ' 在这个环境里不可访问（预览只允许 /.cloud/ 路径、' +
+      '真机被网关拦截、或地址未配进 request 合法域名）。已改用本地引擎（棋力较弱，评分仅供参考）。' +
+      '正式版请改用自有已备案域名（https）部署引擎服务。')
   }
   return Object.assign({}, local, {
     source: 'local',
@@ -432,6 +493,14 @@ async function analyze(input) {
   }
   const startedAt = Date.now()
 
+  // 版本探测与本次分析并行发出（不 await）：真机往返约 0.2s，分析回来时通常已经有结果了
+  if (!cachedVersion && !permanentlyBlocked) fetchEngineVersion()
+
+  if (!endpointLogged) {
+    endpointLogged = true
+    debugLog.push('info', '[引擎] 端点 ' + endpoint + '（来源：' + endpointFrom + '）')
+  }
+
   for (let attempt = 0; attempt < 2; attempt++) {
     let res = null
     let err = null
@@ -462,6 +531,8 @@ async function analyze(input) {
         err = wrapError('BAD_RESPONSE', '云端引擎没有返回任何路线', status)
       } else {
         const result = normalize(body, { fen: fen }, multiPV, startedAt)
+        // 探测若已回来（多数情况），补上版本；没回来就等下一次，徽标不影响分析本身
+        if (!result.engineVersion && cachedVersion) result.engineVersion = cachedVersion
         onSuccess(result)
         return result
       }
@@ -481,6 +552,8 @@ async function analyze(input) {
 }
 
 function onSuccess(result) {
+  // /v1 自带版本就记下来，之后不必再探 healthz
+  if (result.engineVersion) cachedVersion = result.engineVersion
   const wasBroken = failStreak > 0 || circuitOpen()
   failStreak = 0
   circuitOpenUntil = 0

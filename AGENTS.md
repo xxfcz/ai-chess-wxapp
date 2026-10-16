@@ -42,6 +42,8 @@ utils/
   ai-client.js                    分析门面 + 分数格式 + 云端点评请求
   cloud.js                        云服务客户端单点初始化（懒加载复用）
   cloud-config.js                 云服务 publicConfig（endpoint + publishableKey）
+  engine-config.js                引擎端点/开关的外部配置解析（见 §4.2）
+  engine-config.build.js          ⚠️ 由 npm run config:engine 从 .env 生成，要提交
   cloud-adapter / diagnostics     wx.request 流式/降级适配、超时看门狗
   text-codec.js                   TextDecoder/TextEncoder 兜底（真机缺失时补）
   device.js                       安全取值：窗口宽度 / Toast / 网络能力探测（逐级降级不抛错）
@@ -67,9 +69,11 @@ docs/                            问题排查与修复记录.md（历史排障�
 
 ### 4.1 云端引擎（engine: remote，当前默认）
 
-`utils/remote-engine.js` 调自建服务 `POST https://ai-chess-server.app.workbuddy.host/v1`，
-**输出同一份契约**，只多 `source` / `engineVersion` / `remote` 三个字段。调用收口在
-`ai-client.js#analyzePosition`，页面只读 `source` 相关的展示字段。
+`utils/remote-engine.js` 调自建服务 `POST {endpoint}/v1`（当前 `https://chess.imex.de5.net`，
+中国香港机，Stockfish 15.1 进程池 8），**输出同一份契约**，只多 `source` / `engineVersion` /
+`remote` 三个字段。调用收口在 `ai-client.js#analyzePosition`，页面只读 `source` 相关的展示字段。
+
+**端点不写死在代码里**，由 `utils/engine-config.js` 解析（见 §4.2）。
 
 - **判错一律看 `body.type === 'error'`**（HTTP 200 也会报错体），不看 statusCode。
 - **分数只用 `lines[].scoreCp` / `scoreMate`**（服务端已换成行棋方视角）；顶层 `eval` / `centipawns` /
@@ -79,8 +83,35 @@ docs/                            问题排查与修复记录.md（历史排障�
 - **终局 / 非法 FEN 本地前置拦截**，不浪费一次往返。
 - **连续失败 2 次即熔断 60 秒**，期间直接走本地，避免每次自动分析都干等网络超时。
 - 服务端契约与字段口径：`E:\WorkBuddy\ai-chess-server\docs\05-小程序接入协议.md`（唯一权威）。
-- ⚠️ `app.workbuddy.host` 是**联调域名，正式版不能依赖**：小程序 request 合法域名要求 ICP 备案，
-  发布前必须换成自己的已备案域名（只改 `remote-engine.js` 的 `DEFAULT_ENDPOINT`，或 `configure()`）。
+- 引擎版本从 `GET /healthz` 取（`POST /v1` 不带 engine 字段），只在首次分析时并行探一次并缓存，
+  失败静默——徽标退化成「云端引擎」，**不影响分析**。
+
+### 4.2 端点配置（改地址不要动代码）
+
+小程序运行时**读不到 `process.env`，也读不到 `.env`**（包内没有文件系统、没有 node 环境），
+所以「外部配置」= **编译前注入 + 运行时覆盖**两条路，都在 `utils/engine-config.js`：
+
+| 优先级 | 来源 | 怎么用 |
+| --- | --- | --- |
+| 1 | 代码覆盖 `engineConfig.setEndpoint()` | 联调/测试 |
+| 2 | 本地缓存 `wx.getStorageSync('ai-chess.engineEndpoint')` | 真机临时换地址，**不用重新编译** |
+| 3 | `.env` → `npm run config:engine` → `utils/engine-config.build.js` | **改地址走这条**（生成文件要提交） |
+| 4 | 内置默认 `BUILT_IN_ENDPOINT` | 兜底 |
+
+`.env` 支持 4 个键（模板 `.env.example`，**系统环境变量同名变量优先于 `.env`**，CI 可覆盖）：
+
+```
+ENGINE_ENDPOINT=https://chess.imex.de5.net   # 通用/正式
+ENGINE_ENDPOINT_DEV=http://112.121.168.204:8787  # 仅 develop 版（开发者工具/真机调试）优先
+ENGINE_MODE=remote                           # remote | local
+ENGINE_TIMEOUT_MS=10000                      # 留空用默认 10000
+```
+
+- 换地址流程：改 `.env` → `npm run config:engine` → 重新编译小程序。
+- `ENGINE_ENDPOINT_DEV` 只在 `envVersion === 'develop'` 时生效，正式/体验版自动用正式地址——
+  **http + 裸 IP + 端口只能在「开发者工具 / 真机调试 + 不校验合法域名」下用**，release 下不可用。
+- 地址一律经 `normalizeEndpoint()`：非 http(s) / 空值当没配，回落到下一级，不让拼错的地址把引擎搞挂。
+- 发布前记得在 mp 后台把正式域名加进 **request 合法域名**。
 
 ## 5. chess.js 本地副本的关键约定
 
@@ -151,6 +182,7 @@ node .workbuddy/tests/analyze-page.test.js      # 页面初始化、走子(拖/�
 node .workbuddy/tests/cloud-adapter.test.js     # UTF-8 编码、原生分块透传、降级、中止探测不判负、看门狗等
 node .workbuddy/tests/agent-tools.test.js       # 阶段一工具层与演示线落地
 node .workbuddy/tests/remote-engine.test.js     # 云端引擎：字段映射、分数视角、终局拦截、回落显形、熔断
+node .workbuddy/tests/engine-config.test.js     # 端点外部配置：优先级、地址规整、develop/release 分流
 ```
 
 - 改完引擎或页面后**跑这几套，全绿再交付**。
@@ -169,8 +201,10 @@ node .workbuddy/tests/remote-engine.test.js     # 云端引擎：字段映射、
 
 - **改棋盘渲染**：动 `board-model.js`（视图数据）与 `analyze.wxml/wxss`。遵守 §6.1–§6.4；坐标换算走 `geometry.js`。
 - **改引擎**：端上只动 `utils/engine.js`，云端只动 `utils/remote-engine.js`，两边都保持 `analyze()` 输出契约（§4 / §4.1）。内部用 `raw_*`，别在搜索树里生 SAN。
-- **换云端引擎地址**：改 `utils/remote-engine.js` 的 `DEFAULT_ENDPOINT`（正式版必须换成自己的已备案域名），
-  或运行时 `remoteEngine.configure({ endpoint })`。**不要**把它写进 `cloud-config.js`——那是云服务 LLM 的凭据位。
+- **换云端引擎地址**：**改 `.env` 再跑 `npm run config:engine`**（见 §4.2），不要直接改代码。
+  调试期临时换可以运行时 `remoteEngine.configure({ endpoint })` 或改本地缓存
+  `wx.setStorageSync('ai-chess.engineEndpoint', 'https://…')`（真机免重新编译）。
+  **不要**把引擎地址写进 `cloud-config.js`——那是云服务 LLM 的凭据位。
 - **改云端点评**：动 `ai-client.js`（提示词/模型/超时/重试）与 `cloud-adapter`（看门狗/降级）；配置在 `cloud-config.js`。遵守 §7，发布前在微信开发者工具执行「构建 npm」。
 - **加新页面/功能**：页面内自查状态，新页面加进 `app.json#pages`，保留 `lazyCodeLoading`。
 - **判断"某个功能在当前环境能不能用"**：查 `docs/能力开关与功能矩阵.md`。能力由**三个独立开关**

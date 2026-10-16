@@ -16,6 +16,7 @@ const tools = require('./tools')
 const coachDemo = require('./coach-demo')
 const { Chess } = require('./chess.js')
 const { getCloud } = require('./cloud')
+const engineConfig = require('./engine-config')
 
 const COACH_SYSTEM_PROMPT = [
   '你是一名国际象棋教练，面向中文用户讲解局面。',
@@ -126,7 +127,8 @@ function buildCandidates(models) {
  *
  * 注意它调的是**强度**不是有无：两端都有引擎，`local` 是一个弱引擎，不是没有引擎。
  */
-let engineMode = 'remote'
+// 初始值也走外部配置（.env 的 ENGINE_MODE / 本地缓存），见 utils/engine-config.js
+let engineMode = engineConfig.resolveEngineMode()
 
 function setEngineMode(mode) {
   engineMode = mode === 'local' ? 'local' : 'remote'
@@ -185,10 +187,11 @@ function describeEngineSource(result) {
     if (r.degradedFrom === 'ENV_NO_NETWORK') {
       notice = '当前环境不允许网络请求，已使用本地引擎（棋力较弱，评分仅供参考）。'
     } else if (r.degradedFrom === 'GATEWAY_BLOCK') {
-      // 开发预览域名在微信内（预览/真机）不允许直连：不是服务器故障，是平台限制。
-      // 正式版需用自有已备案域名部署引擎服务（路线 C），详见 docs/自建引擎服务部署方案.md
-      notice = '当前引擎后端为开发预览域名，微信内（预览/真机）不允许直接访问，' +
-        '已改用本地引擎（棋力较弱，评分仅供参考）。正式版请改用自有已备案域名部署引擎服务。'
+      // 后端地址在这个微信环境里根本连不出去（预览只允许 /.cloud/ 路径、真机被网关拦截、
+      // 或地址未配进 request 合法域名）：不是服务器故障，重试和熔断都没用。
+      // 正式版需 https + 自有已备案域名，详见 docs/自建引擎服务部署方案.md
+      notice = '当前引擎后端地址在这个环境里无法访问（未配合法域名或被网关拦截），' +
+        '已改用本地引擎（棋力较弱，评分仅供参考）。正式版请改用自有已备案域名（https）部署引擎服务。'
     } else {
       notice = '云端引擎' + remoteEngine.reasonText(r.degradedFrom) +
         '，已自动改用本地引擎（棋力较弱，评分仅供参考）。'
