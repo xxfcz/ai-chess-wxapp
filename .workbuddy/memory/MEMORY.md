@@ -14,6 +14,14 @@
   `ai.requestCoachComment()`）——改名收益低、回归风险高（`coachText` 是 setData 键名，牵动 WXML）。
   原则：新增代码用 `tutor`/`sparrer`，既有的不动。
 
+## 文档编码约定（2026-10-21 定）
+
+- **始终用 UTF-8（无 BOM）保存文档（.md 等文本文档）**。本项目 `docs/*.md` 经检测均为合法 UTF-8（无 BOM），这是标准且兼容性最好的格式。
+- **不要加 BOM**：BOM 在部分工具（Git GUI/Tk、某些解析器）里不会被剥离，反而显示成 `ï»¿` 乱码或破坏解析；用户已明确要求「不要带 BOM」。
+- 若某 Windows 编辑器把无 BOM UTF-8 误判为 GBK 显示乱码，那是**查看器的问题**，解决办法是让查看器以 UTF-8 打开（VS Code 默认正确；记事本可在「文件→另存为/打开」选 UTF-8，或开启系统「Beta: 使用 Unicode UTF-8」），而不是给文件加 BOM。
+- **代码 / 配置文件同样无 BOM**（BOM 会破坏 shebang、JSON/JS 解析）。
+- 校验/修正用 managed python：`open(p,'rb').read()[:3]==codecs.BOM_UTF8` 应为 False；`decode('utf-8')` 应成功；去除 BOM：`open(p,'w',encoding='utf-8').write(open(p,encoding='utf-8-sig').read())`。
+
 ## 数据格式（2026-10-08 定）
 
 - 内部一律 `FEN + UCI`（演示线、分支树节点、错题索引），不用 PGN 存状态；
@@ -47,6 +55,7 @@ coach-demo.test.js        # 独立脚本（非 harness），打印 PASS/FAIL
 + `agent-phase1-tutor.md` / `agent-phase2-react.md` / `agent-phase3-memory.md`
 + `agent-tutor-interactions.md`（交互总览：六条第一性原则、会话状态机、§8 错误文案口径表）
 ——**改 Tutor 界面/文案前先读它**。阶段二、三不写函数级改造清单，只留契约 + 待决策项 + 验收口径。
++ `docs/平台化产品重构方案.md`（2026-10-21，产品平台化重构总纲：L0/L1/L2 分层、SPA 双视图、四模块版图、§9 界面简化）
 
 ## 交互设计三条硬结论
 
@@ -134,6 +143,31 @@ coach-demo.test.js        # 独立脚本（非 harness），打印 PASS/FAIL
 - **GPL**：只服务端运行 + HTTP 调用不触发传染；前提是**任何 Stockfish 二进制/wasm 都不进小程序包**
   （将来做 Web 版也不能打进前端）。
 
+## 产品架构方向（2026-10-21 定）—— 平台化重构
+
+- 决策：把「棋局会话（FEN/PGN + 走子树 + 引擎分析 + AI点评）」抽成**无 UI 纯功能平台层（L0）**
+  → 共享 UI 组件层（L1） → 模式配置层（L2：对弈/分析/打谱/练习）。
+- 导航（**2026-10-21 第二轮修正**）：**Landing 首页（主包单页）+ 各模式分包 page**（subPackage）。澄清：
+  小程序无 HTML 页面；多 page ≠ 主包增大（靠分包去重）；重建可控（全局 store 保 session + 引擎无状态/纯函数）。
+  SPA 单页双视图降为可选方案。架构 = 加模块即加一个分包 page + Landing 注册一张卡片。
+- 模块版图：对弈(人机)/分析(已有)/打谱(PGN复盘)/练习(战术·开局) 全部纳入；**MVP 先把现有 analyze 页平台化 + 简化界面**。
+- 差异化能力：AI点评的「走法分支 + 点击链接走子/定位」上升为**平台级一等公民**（comment-model 协议层），所有模式复用。
+- UI 简化（借鉴 chess_tutor）：删底部脚注/运行日志Tab/点评技术细节/引擎元信息（移入调试模式）；优势文字→**评估条**；
+  FEN/PGN 导入移到 Landing 入口（可折叠）；Workspace Tab 由 5 个降到 3 个（引擎分析/AI点评/走子记录）。
+- 既有的 `agent-plan` 不废弃：Tutor/Sparrer 从「某功能阶段」上升为**横切教练能力（coach-service）**，被所有模式消费；
+  阶段三 Persistent Tutoring Memory 仍是跨模式的用户画像/错题记忆。
+- 设计文档：`docs/平台化产品重构方案.md`（含 §9 界面简化清单、§11 第二轮澄清决策，精确到 analyze.wxml 行号）。
+
+## 平台化重构 · 第二轮澄清决策（2026-10-21，详见方案 §11）
+
+- **服务职责**：3 线 MultiPV = `engine-service`(算原始 N 线，已独立) + `analysis-service`(读成 3 线+评分+节点级缓存，当前折叠在 `ai-client.js` 的 `formatScore`/`buildLineView`/`evalPercent`)；AI 点评 = `coach-service`(`requestCoachComment` + `coach-demo.js`)。依赖链 engine→analysis→coach 已清晰，重构即把 analysis/coach 物理拆离 `ai-client.js`。
+- **`degraded` 语义**：`source` 仅 `'remote'`/`'local'`；`degraded` 不是第三种来源，是 `source:'local'` 上的标记(`degradedFrom`)，表示「本想用 remote、远端不可用、被动回落 local、棋力偏弱」，须与「用户主动选 local」区分。
+- **自动点评**：新增设置项 `autoCoach`(`off`/`on`/`remoteOnly`)，用户自定；模式配置层「点评触发」读该设置而非写死。
+- **第三方 LLM 可配置**：新增 `llm-provider` 抽象（`platform`=公众平台云 SDK 现状 / `openai-compatible`=BASE_URL+API_KEY+model），设置页可切换。安全提醒：前端存 key 会被提取，建议走自有代理(`chess.imex.de5.net` 加 `/llm`)；直连需加第三方合法域名。
+- **剪贴板自动读 FEN/PGN**：Landing/page `onShow` 调 `wx.getClipboardData()`(仅文本)，匹配合法 FEN/PGN 则 `wx.showModal` 询问导入（纳入 MVP）。**图片无法读剪贴板**（`wx.getClipboardData` 只回文本）→ 改后续阶段：用户主动 `wx.chooseMedia` 选图 + 后端 `/recognize` 识别。
+- **内容易迷失**：列为交互研究 backlog（渐进展示/面包屑回溯/聚焦讲解模式/分支树局部展开），不现在定稿。
+- **暂不展开**：继续上次/最近棋谱（依赖阶段三 cloud 存档）、练习题库（依赖外部数据）→ 移出 MVP，标 deferred。
+
 ## 待办
 
 - **`engine: remote` 真机/预览可用性的硬阻塞**：`app.workbuddy.host` 是 CloudStudio 预览域名，
@@ -141,3 +175,4 @@ coach-demo.test.js        # 独立脚本（非 harness），打印 PASS/FAIL
   （路线 C），并在 mp 后台配 request 合法域名，才能真正在真机用上云端 Stockfish。
 - `docs/远端引擎接入方案-chess-api.md` 的 D14「WS 为主」在自建服务下已不适用（REST 就能拿 MultiPV），
   落地以 `05-小程序接入协议.md` 为准。
+- **平台化重构待拍板（已收口）**：「继续上次/最近棋谱」与「练习题库」**已决定暂不展开**（deferred，移出 MVP），前者依赖阶段三 cloud 跨设备存档、后者依赖外部题库数据，待平台层稳定后再议。
