@@ -25,3 +25,14 @@
   font-family: Menlo, Consolas, monospace;
   color: #e9ecf5;
 }
+
+/* 打谱模式：可点击定位的走法，当前所在的那一手高亮 */
+.move-san {
+  cursor: pointer;
+}
+
+.move-active {
+  background-color: #3a2f12;
+  color: #f0b232;
+  border-radius: 8rpx;
+}

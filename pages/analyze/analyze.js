@@ -1,5 +1,5 @@
 /**
- * pkg-analyze/analyze/analyze.js（分析模式分包 page）
+ * pages/analyze/analyze.js（分析模式 page）
  * 分析页：FEN 初始化 → WXML 棋盘 → 拖拽/点选走子 → 终局提示 → 三条路线 AI 分析 → 云端点评。
  *
  * 棋盘不用 Canvas：网页版预览不实现 wx.createSelectorQuery，拿不到 2d 节点。
@@ -14,6 +14,7 @@ const coachDemo = require('../../utils/coach-demo')
 const coachRunner = require('../../utils/coach-runner')
 const debugLog = require('../../utils/debug-log')
 const { sessionStore } = require('../../utils/session-store')
+const navigation = require('../../utils/navigation')
 const clipboardImport = require('../../utils/clipboard-import')
 
 const DEPTH_OPTIONS = [2, 3, 4]
@@ -106,7 +107,8 @@ Page({
   /* ------------------------------------------------------------ 生命周期 */
 
   onLoad(options) {
-    options = options || {}
+    // 预览环境可能退到「不带 query」的 url 跳转，参数改由导航层暂存，这里取回（原生环境无感）
+    options = navigation.mergeLaunchOptions(options)
     const metrics = boardModel.boardMetrics(
       device.getWindowWidth(),
       Math.floor(device.getWindowHeight() * 0.5)

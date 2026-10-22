@@ -1,5 +1,5 @@
 /**
- * pkg-play/play/play.js（对弈模式分包 page）
+ * pages/play/play.js（对弈模式 page）
  * 玩家 vs 陪练（sparrer，引擎出着）：每步自动分析 + 点评（受 autoCoach + playCoachScope 门控）。
  *
  * 设计要点（看板 L2-T6 / 方案 §11.4）：
@@ -21,6 +21,7 @@ const coachRunner = require('../../utils/coach-runner')
 const settings = require('../../utils/settings')
 const debugLog = require('../../utils/debug-log')
 const { sessionStore } = require('../../utils/session-store')
+const navigation = require('../../utils/navigation')
 
 const DEPTH_OPTIONS = [2, 3, 4]
 const DEFAULT_DEPTH_INDEX = 1
@@ -116,7 +117,8 @@ Page({
   /* ------------------------------------------------------------ 生命周期 */
 
   onLoad(options) {
-    options = options || {}
+    // 预览环境可能退到「不带 query」的 url 跳转，参数改由导航层暂存，这里取回（原生环境无感）
+    options = navigation.mergeLaunchOptions(options)
     const metrics = boardModel.boardMetrics(
       device.getWindowWidth(),
       Math.floor(device.getWindowHeight() * 0.5)

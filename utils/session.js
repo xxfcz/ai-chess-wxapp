@@ -18,6 +18,7 @@
  * 本模块不依赖 wx / DOM / Canvas，可单独纯 Node 单测。
  */
 const { Chess } = require('./chess.js')
+const pgnTree = require('./pgn-tree')
 
 const START_FEN = 'r1b2rk1/ppp1p1pp/3b4/2qP4/8/2P2N1P/PP1B1P2/R1Q1RK2 w - - 0 1'
 const DEFAULT_PROMOTION = 'q'
@@ -131,6 +132,11 @@ class Session {
     return !!parent && parent.children[0] === node
   }
 
+  /** 已建立的节点总数（含根；打谱页用来显示「共 N 步（含变例）」） */
+  nodeCount() {
+    return this._nodes.size
+  }
+
   /* --------------------------------------------------------- 规则层（复用 chess.js） */
 
   _chessAtFen(fen) {
@@ -229,6 +235,27 @@ class Session {
       return { over: false, inCheck: true, winner: null, reason: 'check', label: `将军 · ${turnLabel}应将` }
     }
     return { over: false, inCheck: false, winner: null, reason: 'normal', label: `${turnLabel}行棋` }
+  }
+
+  /**
+   * 正在被将军的一方的王所在棋格；未被将军返回 null。
+   * 口径与 game.js#kingSquareUnderCheck 一致（各模式共用同一套高亮语义）。
+   */
+  kingSquareUnderCheck(fen) {
+    const chess = this._chessAtFen(fen == null ? this.current().fen : fen)
+    if (!chess || !chess.in_check()) return null
+    const color = chess.turn()
+    const board = chess.board()
+    for (let row = 0; row < 8; row++) {
+      for (let col = 0; col < 8; col++) {
+        const p = board[row][col]
+        // chess.js 的 board() 第 0 行是第 8 横线
+        if (p && p.type === 'k' && p.color === color) {
+          return String.fromCharCode(97 + col) + (8 - row)
+        }
+      }
+    }
+    return null
   }
 
   /* --------------------------------------------------------- 走子 / 导航 */
@@ -463,6 +490,31 @@ class Session {
       if (!node) { okAll = false; break }
     }
     return okAll
+  }
+
+  /**
+   * 从 PGN 载入**完整走法树**（主线 + 圆括号变例）。
+   *
+   * 与 loadPgn 的区别：loadPgn 走 chess.js 的 history，只能重建主线（0.10.3 会删掉 RAV）；
+   * 打谱模式需要变例树，所以改由 pgn-tree 在边界解析成 move 树再灌进来。
+   * 两者都只在 import 边界做一次 PGN→FEN+UCI 转换，内部状态永远是 FEN+UCI。
+   *
+   * @param {string} pgn
+   * @returns {object} 解析结果（ok/headers/plyCount/variationCount/error…）；失败时会话保持原状
+   */
+  loadPgnTree(pgn) {
+    const parsed = pgnTree.parsePgn(pgn)
+    if (!parsed.ok) return parsed
+    const built = pgnTree.buildInto(this, parsed)
+    if (!built) {
+      // 走到这里说明「合法走法」在树上落地失败（理论不发生），退回根局面避免半个残树
+      this._reset(parsed.rootFen)
+      parsed.ok = false
+      parsed.error = parsed.error || '走法树构建失败'
+      return parsed
+    }
+    this._currentId = this._root.id
+    return parsed
   }
 
   _parseSansFallback(pgn) {

@@ -1,6 +1,6 @@
 /**
  * play-page.test.js
- * 对弈分包（pkg-play/play）页面层回归：初始化、走子护栏（只能动己方棋子、myTurn 门控）、
+ * 对弈页（pages/play/play）页面层回归：初始化、走子护栏（只能动己方棋子、myTurn 门控）、
  * sparrer 引擎自动回着、自动点评门控（autoCoach × playCoachScope 关键步判定）、
  * undo 回退保持玩家掌控、以及 WXML 模板静态守卫 + app.json 配置守卫。
  *
@@ -17,8 +17,8 @@ const path = require('path')
 const H = require('./_harness')
 
 const ROOT = path.join(__dirname, '..', '..')
-const PLAY_PAGE = path.join(ROOT, 'pkg-play', 'play', 'play.js')
-const PLAY_WXML = path.join(ROOT, 'pkg-play', 'play', 'play.wxml')
+const PLAY_PAGE = path.join(ROOT, 'pages', 'play', 'play.js')
+const PLAY_WXML = path.join(ROOT, 'pages', 'play', 'play.wxml')
 const APP_JSON = path.join(ROOT, 'app.json')
 
 const ai = require(path.join(ROOT, 'utils', 'ai-client.js'))
@@ -382,13 +382,15 @@ async function main() {
   collectWxml(path.join(ROOT, 'pages'), wxmlFiles)
   collectWxml(path.join(ROOT, 'components'), wxmlFiles)
   const appJsonForScan = JSON.parse(fs.readFileSync(APP_JSON, 'utf8'))
-  if (Array.isArray(appJsonForScan.subpackages)) {
-    appJsonForScan.subpackages.forEach(sp => {
+  // 官方字段是 subPackages，小写 subpackages 为等价写法；两种都认，避免改名后守卫静默漏扫
+  const scanSubs = appJsonForScan.subPackages || appJsonForScan.subpackages
+  if (Array.isArray(scanSubs)) {
+    scanSubs.forEach(sp => {
       if (sp && sp.root) collectWxml(path.join(ROOT, sp.root), wxmlFiles)
     })
   }
   const uniqueWxml = Array.from(new Set(wxmlFiles))
-  H.ok(uniqueWxml.indexOf(PLAY_WXML) !== -1, '扫描集合包含 pkg-play/play/play.wxml')
+  H.ok(uniqueWxml.indexOf(PLAY_WXML) !== -1, '扫描集合包含 pages/play/play.wxml')
   const wxml = uniqueWxml.map(f => fs.readFileSync(f, 'utf8')).join('\n').replace(/<!--[\s\S]*?-->/g, '')
 
   const tags = []
@@ -433,14 +435,13 @@ async function main() {
   H.eq(appJson.lazyCodeLoading, 'requiredComponents', 'app.json 保留了 lazyCodeLoading')
   H.ok(Array.isArray(appJson.pages) && appJson.pages.indexOf('pages/landing/landing') !== -1,
     '主包 pages 包含 Landing 首页')
-  H.ok(Array.isArray(appJson.subpackages) &&
-    appJson.subpackages.some(sp => sp.root === 'pkg-analyze' && sp.pages.indexOf('analyze/analyze') !== -1),
-    'subpackages 包含 pkg-analyze/analyze（分析已分包化）')
-  H.ok(Array.isArray(appJson.subpackages) &&
-    appJson.subpackages.some(sp => sp.root === 'pkg-play' && sp.pages.indexOf('play/play') !== -1),
-    'subpackages 包含 pkg-play/play（对弈已分包化，L2-T6）')
-  H.ok(!(appJson.pages || []).some(p => p.indexOf('pkg-play') === 0),
-    '对弈分包页面不重复列在主包 pages 里')
+  // 2026-10-22 晚：放弃分包，模式页移入主包 pages
+  H.ok(Array.isArray(appJson.pages) && appJson.pages.indexOf('pages/analyze/analyze') !== -1,
+    '主包 pages 包含 pages/analyze/analyze（已改单包）')
+  H.ok(Array.isArray(appJson.pages) && appJson.pages.indexOf('pages/play/play') !== -1,
+    '主包 pages 包含 pages/play/play（已改单包，L2-T6）')
+  H.ok(!appJson.subPackages && !appJson.subpackages,
+    '不再声明 subPackages（单包结构）')
 
   sessionStore.reset()
   ai.setEngineMode('local')

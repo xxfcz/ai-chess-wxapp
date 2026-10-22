@@ -2,14 +2,14 @@
   <view class="row head">
     <text class="section-title">走子记录（SAN）</text>
     <view class="gap"></view>
-    <text class="muted tiny">共 {{moveCount}} 步</text>
+    <text class="muted tiny">共 {{moveCount}} 步{{interactive ? ' · 点一步可定位' : ''}}</text>
   </view>
   <view wx:if="{{moveRows.length}}" class="moves">
     <view wx:for="{{moveRows}}" wx:key="key" class="move-row" id="mv{{item.no}}">
       <text class="move-no">{{item.no}}.</text>
-      <text class="move-san">{{item.white}}</text>
-      <text class="move-san">{{item.black}}</text>
+      <text class="move-san {{item.whiteActive ? 'move-active' : ''}}" data-node="{{item.whiteKey}}" bindtap="onMoveTap">{{item.white}}</text>
+      <text class="move-san {{item.blackActive ? 'move-active' : ''}}" data-node="{{item.blackKey}}" bindtap="onMoveTap">{{item.black}}</text>
     </view>
   </view>
-  <text wx:else class="muted tiny">还没有走子记录，拖动棋子开始对弈。</text>
+  <text wx:else class="muted tiny">还没有走子记录。</text>
 </view>

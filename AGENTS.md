@@ -6,7 +6,10 @@
 
 微信原生小程序「国际象棋 AI 分析」：
 
-- 用户从 **Landing 首页**（`pages/landing`）选「分析棋局」→ 进入 `pkg-analyze/analyze`（分析模式分包）用 **视图棋盘** 对弈/模拟 → 引擎给出 **三条最佳路线（MultiPV=3）** 分析 → 可选 **云端 AI 教练** 用大模型生成中文局面点评。
+- 用户从 **Landing 首页**（`pages/landing`）选模式：**分析棋局**（`pages/analyze`）、
+  **开新局**（`pages/play`，与 AI 陪练对弈）、**打谱**（`pages/replay`，导入 PGN 复盘）。
+- 分析棋局：用 **视图棋盘** 对弈/模拟 → 引擎给出 **三条最佳路线（MultiPV=3）** 分析 → 可选 **云端 AI 教练** 生成中文局面点评。
+- 打谱：PGN 只在导入边界转成 **FEN+UCI 走法树**（含圆括号变例），逐步回放、每步引擎标注、点评里的分支可点开演示。
 - 分析有两条实现：**云端 Stockfish**（`engine: remote`，默认，走自建 `ai-chess-server` 的 `POST /v1`）与
   **端上纯 JS 引擎**（`engine: local`，Alpha-Beta + 静态评估 + 静态搜索，弱但离线可用）。
   远端不可用时**自动回落端上**，界面必须标注实际来源（见 §4.1）。
@@ -25,14 +28,17 @@
 
 ```
 app.js / app.json / app.wxss      小程序入口；app.json 顶层必须保留 lazyCodeLoading
-pages/landing/                    主包首页：四张模式入口卡片 + 设置入口（纯入口，不含棋盘逻辑）
-pages/placeholder/               主包占位页：对弈/打谱/学习/设置 尚未落地时的过渡页
-pkg-analyze/analyze/              分析模式分包 page：analyze.{js,wxml,wxss,json}
+pages/landing/                    首页：四张模式入口卡片 + 设置入口 + 调试面板（纯入口，不含棋盘逻辑）
+pages/placeholder/                占位页：学习/设置 尚未落地时的过渡页
+pages/analyze/                    分析模式 page：analyze.{js,wxml,wxss,json}
                                   布局：唯一的固定元素是棋盘（view 网格，留在上半屏），
                                   状态/控制按钮与 Tab 内容同属一个 scroll-view 整体划动（Tab 内部不再各自滚动），
                                   底部 Tab 栏钉住：引擎分析 / AI教练点评 / 走子记录（5→3 Tab，见方案 §9）。
                                   状态条已压成单行、优势只显示数值（不画进度条）。
                                   棋盘尺寸按窗口高度约一半做上限，保证留在上半屏。
+pages/play/                       对弈 page：玩家 vs 陪练（引擎出着）+ 自动分析/点评门控（L2-T6）
+pages/replay/                     打谱 page：PGN 导入 → 走法树回放（主线+变例）→ 每步引擎标注 + 点评分支演示（L2-T7）
+                                  棋盘只读；走法记录可点定位；当前局面有多条续着时出现「分支」chips。
 utils/
   chess.js                         chess.js 0.10.3 本地副本 + 末尾追加 raw_* 扩展（见 §5）
   engine.js                       端上 Alpha-Beta 引擎，analyze() 是对外契约（见 §4）
@@ -49,8 +55,11 @@ utils/
   text-codec.js                   TextDecoder/TextEncoder 兜底（真机缺失时补）
   device.js                       安全取值：窗口宽度 / Toast / 网络能力探测（逐级降级不抛错）
   debug-log.js                    60 条环形缓冲日志，页面「运行日志」卡片可查
-  session-store.js                跨分包全局会话仓库（单例）：持有 Game 实例 + 最近分析，退/进不丢局面（L2-T3）
+  session-store.js                跨页面全局会话仓库（单例）：持有 Game 实例（对弈/分析）+ Session 走法树（打谱）+ 最近分析，退/进不丢（L2-T3）
   clipboard-import.js             剪贴板自动导入 FEN 共享逻辑（Landing 与分析页共用，L2-T5）
+  navigation.js                   页面跳转统一封装：url 候选形式自适配 + 失败显形 + 参数经 store 补齐（见 §6.6）
+  pgn-tree.js                     PGN 边界解析：头 + 走法 + 圆括号变例 → 走法树（chess.js 的 load_pgn 会删掉变例，故自解析）
+  settings.js                     用户偏好（autoCoach / playCoachScope / playKeyCp / playAs / sparrerLevel），wx storage 静默降级
 .workbuddy/tests/                 纯 Node 自检测试 + 实网探针（见 §7）
 docs/                            问题排查与修复记录.md（历史排障笔记）
 ```
@@ -150,6 +159,16 @@ ENGINE_TIMEOUT_MS=10000                      # 留空用默认 10000
 - 状态管理保持页面内自查，无第三方状态库。
 - `app.json` 顶层**必须保留** `"lazyCodeLoading": "requiredComponents"`。
 
+### 6.6 页面导航（预览运行时的 url 解析差异）
+- **不要直接调 `wx.navigateTo`**，统一走 `utils/navigation.js#navigate(url, {host, onFail})`。
+- 起因：内置预览里 `navigateTo` 报 `navigationTo: fail 未找到页面`，连主包 `pages/placeholder` 也找不到。四种 url 形式（带 query / 去 query / 相对路径 / 相对去 query）**在预览里全部失败**，而真机一直正常。
+- **结论：项目已放弃分包（2026-10-22 晚）**。三个模式页 `pkg-*` 已移入主包 `pages/analyze|play|replay`，`app.json` 不再有 `subPackages`。**不要再加回分包**，直到确认预览支持分包导航；加模式 = 在 `pages/` 下加一个页面 + 在 Landing 注册一张卡片。
+- 处理方式仍是「**候选形式依次尝试**」：原样 → 去 query → 相对路径（去前导 `/`）→ 相对路径去 query → 兜底 `redirectTo` / `reLaunch`；任一成功即停。**全部失败必须回调 `onFail` 并显示在界面上**（Landing 顶部有「这个入口没打开」卡片 + 复制详情），不许静默。
+- 参数不能丢：一旦走了「不带 query」的形式，query 解析结果写进 `sessionStore.setPendingParams()`，目标页 `onLoad` 第一行用 `navigation.mergeLaunchOptions(options)` 取回（一次性语义，显式 options 优先）。**新增页面若读 `options.xxx`，就必须加这一行。**
+- 环境既不回调 `success` 也不回调 `fail` 时，只上报一次（`NO_CALLBACK_MS`），**不再盲试下一个 url** —— 可能其实已经跳走，重试会重复跳页。
+- `onSuccess({url,attempts,via})` 会报告「第几种形式成功」，Landing 把它写进运行日志：**这是判断宿主差异的唯一证据**（原生应是「第 1 种形式」，预览若退到第 2/3 种就说明它对 query 或前导 `/` 挑剔）。
+- **Landing 底部有「调试」入口**（默认收起）：运行日志 + 10 个宿主接口的能力探测（`navigateTo`/`redirectTo`/`setClipboardData`/`setEnableDebug` 等，✗ 表示宿主没实现）。预览面板没有可翻看的控制台，这里是唯一出口；日志块与错误详情都带 `user-select`，**预览常常没有剪贴板接口，复制按钮无效时必须靠长按选中**（按钮会显形提示，不许无反应）。
+
 ## 7. 云服务（AI 教练点评）
 
 - 只用一个入口：`@tencent-ai/workbuddy-cloud-sdk/miniprogram`；`utils/cloud.js` 单点初始化，懒加载复用；**必须同时传 `publicConfig.endpoint` 与 `publishableKey`**（小程序没有 `location.origin`，缺 endpoint 直接初始化失败），并挂 `createDiagnosticWx(wx)` 适配器。
@@ -186,6 +205,11 @@ node .workbuddy/tests/cloud-adapter.test.js     # UTF-8 编码、原生分块透
 node .workbuddy/tests/agent-tools.test.js       # 阶段一工具层与演示线落地
 node .workbuddy/tests/remote-engine.test.js     # 云端引擎：字段映射、分数视角、终局拦截、回落显形、熔断
 node .workbuddy/tests/engine-config.test.js     # 端点外部配置：优先级、地址规整、develop/release 分流
+node .workbuddy/tests/session.test.js           # L0 走法树：主线/分支/导航/节点缓存/PGN 边界
+node .workbuddy/tests/pgn-tree.test.js          # PGN 边界解析：头、变例、注释/NAG、非法输入、灌入 Session
+node .workbuddy/tests/play-page.test.js         # 对弈页：走子护栏、sparrer 回着、点评门控、撤销
+node .workbuddy/tests/replay-page.test.js       # 打谱页：PGN 导入、逐步回放、分支切换、节点缓存、点评演示、跨页面恢复
+node .workbuddy/tests/landing.test.js           # Landing 卡片导航 + 剪贴板导入
 ```
 
 - 改完引擎或页面后**跑这几套，全绿再交付**。

@@ -16,8 +16,8 @@ const path = require('path')
 const H = require('./_harness')
 
 const ROOT = path.join(__dirname, '..', '..')
-const ANALYZE_PAGE = path.join(ROOT, 'pkg-analyze', 'analyze', 'analyze.js')
-const ANALYZE_WXML = path.join(ROOT, 'pkg-analyze', 'analyze', 'analyze.wxml')
+const ANALYZE_PAGE = path.join(ROOT, 'pages', 'analyze', 'analyze.js')
+const ANALYZE_WXML = path.join(ROOT, 'pages', 'analyze', 'analyze.wxml')
 const APP_JSON = path.join(ROOT, 'app.json')
 
 const ai = require(path.join(ROOT, 'utils', 'ai-client.js'))
@@ -84,7 +84,7 @@ function loadPageModule() {
 /** 造一个页面实例：自带 setData 并把 data 深拷贝一份 */
 function createPage(wxStub, keepStore) {
   // 默认每次造页前清空全局会话仓库，避免上一页残留的 Game/分析污染本页断言；
-  // 跨分包保留测试（§15）传 keepStore=true 复用同一仓库。
+  // 跨页面保留测试（§15）传 keepStore=true 复用同一仓库。
   if (!keepStore) sessionStore.reset()
   installGlobals(wxStub)
   const opts = loadPageModule()
@@ -589,7 +589,7 @@ async function main() {
   /* ------------------------------------------- 11. WXML 模板静态守卫 */
   H.section('11. WXML 模板静态守卫（AGENTS.md §6.4）')
 
-  // 平台化重构后，wx:for / wx:key 分散到了主包页面、5 个 L1 共享组件、以及各分包页面里，
+  // 平台化重构后，wx:for / wx:key 分散到了主包页面、5 个 L1 共享组件、以及各模式页面里，
   // 守卫必须扫描所有 wxml（pages/* + components/* + 各 subpackage root/*），否则会漏掉。
   function collectWxml(dir, acc) {
     if (!fs.existsSync(dir)) return acc
@@ -603,15 +603,16 @@ async function main() {
   const wxmlFiles = []
   collectWxml(path.join(ROOT, 'pages'), wxmlFiles)
   collectWxml(path.join(ROOT, 'components'), wxmlFiles)
-  // 各分包根目录也纳入（analyze 已迁入 pkg-analyze）
+  // 兼容：若将来恢复分包，这里会继续把各分包 root 纳入扫描
   const appJsonForScan = JSON.parse(fs.readFileSync(APP_JSON, 'utf8'))
-  if (Array.isArray(appJsonForScan.subpackages)) {
-    appJsonForScan.subpackages.forEach(sp => {
+  const scanSubs = appJsonForScan.subPackages || appJsonForScan.subpackages
+  if (Array.isArray(scanSubs)) {
+    scanSubs.forEach(sp => {
       if (sp && sp.root) collectWxml(path.join(ROOT, sp.root), wxmlFiles)
     })
   }
   const uniqueWxml = Array.from(new Set(wxmlFiles))
-  H.ok(uniqueWxml.length >= 7, `扫描到 ${uniqueWxml.length} 个 wxml 文件（主包页面 + 组件 + 分包）`)
+  H.ok(uniqueWxml.length >= 7, `扫描到 ${uniqueWxml.length} 个 wxml 文件（页面 + 组件）`)
   // 先剔除注释，避免注释里的「<block>」「index」等字面量误伤守卫
   const wxml = uniqueWxml.map(f => fs.readFileSync(f, 'utf8')).join('\n').replace(/<!--[\s\S]*?-->/g, '')
 
@@ -670,11 +671,11 @@ async function main() {
   H.eq(appJson.lazyCodeLoading, 'requiredComponents', 'app.json 保留了 lazyCodeLoading')
   H.ok(Array.isArray(appJson.pages) && appJson.pages.indexOf('pages/landing/landing') !== -1,
     '主包 pages 包含 Landing 首页')
-  H.ok(Array.isArray(appJson.subpackages) &&
-    appJson.subpackages.some(sp => sp.root === 'pkg-analyze' && sp.pages.indexOf('analyze/analyze') !== -1),
-    'subpackages 包含 pkg-analyze/analyze 分包（analyze 已分包化）')
-  H.ok(!(appJson.pages || []).some(p => p.indexOf('pkg-analyze') === 0),
-    '分包页面不重复列在主包 pages 里')
+  // 2026-10-22 晚：放弃分包（预览面板不支持分包导航），三个模式页移入主包 pages
+  H.ok(Array.isArray(appJson.pages) && appJson.pages.indexOf('pages/analyze/analyze') !== -1,
+    '主包 pages 包含 pages/analyze/analyze（已改单包）')
+  H.ok(!appJson.subPackages && !appJson.subpackages,
+    '不再声明 subPackages（单包结构）')
 
   /* ------------------------------------- 13. 引擎来源：云端成功 / 降级显形 */
   H.section('13. 引擎来源标注（云端成功 / 降级显形）')
@@ -864,8 +865,8 @@ async function main() {
     H.eq(p.game.getFen(), before, '剪贴板无 FEN 时手动导入也不动棋局')
   }
 
-  /* ------------------------------------- 15. 全局 store 跨分包保留 session（L2-T3） */
-  H.section('15. 全局 store 跨分包保留（L2-T3）')
+  /* ------------------------------------- 15. 全局 store 跨页面保留 session（L2-T3） */
+  H.section('15. 全局 store 跨页面保留（L2-T3）')
 
   // 全新会话：清空 store，进入 analyze 并分析一个局面
   sessionStore.reset()
@@ -879,12 +880,12 @@ async function main() {
   H.ok(sessionStore.getAnalysis() && sessionStore.getAnalysis().fen === INITIAL_FEN,
     'store 缓存了已分析局面')
 
-  // 模拟「退出 analyze 分包」：onUnload 不清 store
+  // 模拟「退出 analyze 页」：onUnload 不清 store
   r1.onUnload()
 
   // 再次进入 analyze（store 保留）：不重算即可恢复局面与分析
   const r2 = createPage(wxFull, true)
-  H.eq(r2.game === r1.game, true, '重入复用同一 Game 实例（store 跨分包生效）')
+  H.eq(r2.game === r1.game, true, '重入复用同一 Game 实例（store 跨页面生效）')
   H.eq(r2.game.getFen(), INITIAL_FEN, '重入后棋局保留')
   H.eq(r2.data.analysisLines.length, 3, '重入后分析结果直接恢复，无需重算')
   H.eq(r2._lastResult != null, true, '重入后 _lastResult 已恢复')

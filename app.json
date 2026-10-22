@@ -1,21 +1,10 @@
 {
   "pages": [
     "pages/landing/landing",
-    "pages/placeholder/placeholder"
-  ],
-  "subpackages": [
-    {
-      "root": "pkg-analyze",
-      "pages": [
-        "analyze/analyze"
-      ]
-    },
-    {
-      "root": "pkg-play",
-      "pages": [
-        "play/play"
-      ]
-    }
+    "pages/placeholder/placeholder",
+    "pages/analyze/analyze",
+    "pages/play/play",
+    "pages/replay/replay"
   ],
   "window": {
     "backgroundTextStyle": "light",

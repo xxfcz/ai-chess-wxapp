@@ -85,3 +85,140 @@
   margin-top: 20rpx;
   cursor: pointer;
 }
+
+/* 跳转失败提示（见 pages/landing/landing.js#_go）：错误详情保留换行，便于直接复制排查 */
+.nav-error {
+  margin-top: 20rpx;
+  padding: 22rpx 24rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  border-left: 6rpx solid #d9534f;
+}
+
+.nav-error-title {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #f07a72;
+}
+
+.nav-error-body {
+  margin-top: 10rpx;
+  color: #c8cede;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.nav-error-hint {
+  margin-top: 10rpx;
+  color: #f0b232;
+  white-space: pre-wrap;
+}
+
+.nav-error-actions {
+  margin-top: 16rpx;
+  align-items: center;
+}
+
+/* 调试模式：运行日志 + 环境能力探测（预览面板里唯一的 console 出口） */
+.debug-panel {
+  margin-top: 16rpx;
+  padding: 22rpx 24rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.debug-actions {
+  align-items: center;
+}
+
+.debug-hint {
+  margin-top: 10rpx;
+  color: #f0b232;
+}
+
+.debug-sub {
+  margin-top: 18rpx;
+  font-size: 22rpx;
+  color: #8d96ad;
+}
+
+.env-grid {
+  display: flex;
+  flex-wrap: wrap;
+  margin-top: 10rpx;
+}
+
+.env-chip {
+  margin: 8rpx 10rpx 0 0;
+  padding: 4rpx 12rpx;
+  border-radius: 8rpx;
+  font-size: 20rpx;
+  border: 2rpx solid #2d3548;
+  color: #8d96ad;
+}
+
+.env-chip.env-ok {
+  border-color: #2f6b4f;
+  color: #6fcf97;
+}
+
+.env-chip.env-missing {
+  border-color: #7a3b38;
+  color: #f07a72;
+}
+
+.debug-empty {
+  margin-top: 14rpx;
+}
+
+.debug-row {
+  margin-top: 12rpx;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+}
+
+.debug-time {
+  font-size: 20rpx;
+  color: #6f7789;
+  margin-right: 10rpx;
+}
+
+.debug-level {
+  font-size: 20rpx;
+  margin-right: 10rpx;
+  color: #8d96ad;
+}
+
+.debug-level.lv-error {
+  color: #f07a72;
+}
+
+.debug-level.lv-warn {
+  color: #f0b232;
+}
+
+.debug-level.lv-info {
+  color: #6aa9e0;
+}
+
+.debug-text {
+  flex: 1;
+  min-width: 60%;
+  font-size: 22rpx;
+  color: #c8cede;
+  word-break: break-all;
+  white-space: pre-wrap;
+}
+
+.debug-raw {
+  margin-top: 18rpx;
+  padding-top: 14rpx;
+  border-top: 2rpx solid #232b3a;
+  font-size: 20rpx;
+  color: #8d96ad;
+  white-space: pre-wrap;
+  word-break: break-all;
+}

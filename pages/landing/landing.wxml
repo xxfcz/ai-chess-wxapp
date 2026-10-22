@@ -6,6 +6,18 @@
     <text class="hero-sub muted">国际象棋 AI 分析与教练</text>
   </view>
 
+  <!-- 跳转失败显形：预览运行时对某些 url 形式会「未找到页面」，这里贴出实际尝试与错误，绝不静默 -->
+  <view wx:if="{{navError}}" class="card nav-error">
+    <text class="nav-error-title">这个入口没打开</text>
+    <text class="nav-error-body tiny" user-select="{{true}}">{{navError}}</text>
+    <text wx:if="{{copyHint}}" class="nav-error-hint tiny">{{copyHint}}</text>
+    <view class="row nav-error-actions">
+      <text class="btn tiny" bindtap="onCopyNavError">复制详情</text>
+      <view class="gap"></view>
+      <text class="btn tiny" bindtap="onDismissNavError">关闭</text>
+    </view>
+  </view>
+
   <text class="section-title">选择模式</text>
   <view class="grid">
     <!-- 卡片点击 → navigateTo 对应分包 / 占位页。wx:key 用字符串字段 key；属性里不引用循环变量 index（WXML 静态守卫）。 -->
@@ -31,6 +43,45 @@
       <view class="gap"></view>
       <text class="muted tiny">引擎 / 自动点评 / 模型 偏好</text>
     </view>
+  </view>
+
+  <!-- 调试模式：预览面板没有可翻看的控制台，这里是唯一的出口（运行日志 + 接口能力探测） -->
+  <view class="card setting-row" bindtap="onToggleDebug">
+    <view class="row">
+      <text class="mode-title">调试</text>
+      <view class="gap"></view>
+      <text class="muted tiny">{{debugOpen ? '收起' : '运行日志 / 环境能力'}}</text>
+    </view>
+  </view>
+
+  <view wx:if="{{debugOpen}}" class="card debug-panel">
+    <view class="row debug-actions">
+      <text class="tiny muted">运行日志 {{debugCount}} 条</text>
+      <view class="gap"></view>
+      <text class="btn tiny" bindtap="onCopyDebug">复制日志</text>
+      <text class="btn tiny" bindtap="onClearDebug">清空</text>
+    </view>
+    <text wx:if="{{debugHint}}" class="tiny debug-hint">{{debugHint}}</text>
+
+    <text class="debug-sub">环境能力（✗ = 当前宿主未实现）</text>
+    <view class="env-grid">
+      <text
+        wx:for="{{envRows}}"
+        wx:key="key"
+        class="env-chip {{item.ok ? 'env-ok' : 'env-missing'}}"
+      >{{item.name}}</text>
+    </view>
+
+    <text wx:if="{{debugCount === 0}}" class="tiny muted debug-empty">暂无日志</text>
+    <view wx:for="{{debugRows}}" wx:key="key" class="debug-row">
+      <text class="debug-time">{{item.time}}</text>
+      <text class="debug-level {{item.levelClass}}">{{item.level}}</text>
+      <text class="debug-text" user-select="{{true}}">{{item.text}}</text>
+    </view>
+
+    <!-- 整块纯文本备份：列表若被渲染器漏行，这里还能读到完整内容，且可长按选中 -->
+    <text wx:if="{{debugText}}" class="debug-sub">原始文本（可长按选中）</text>
+    <text wx:if="{{debugText}}" class="debug-raw" user-select="{{true}}">{{debugText}}</text>
   </view>
 
 </view>

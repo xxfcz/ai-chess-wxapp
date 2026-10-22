@@ -18,10 +18,24 @@
 const store = {
   /** 当前棋局实例（Game）；跨分包复用同一引用，避免重算 */
   _game: null,
+  /**
+   * 当前走法树会话（Session）：打谱模式用它，因为 PGN 复盘需要主线 + 变例树。
+   * Game 是线性历史，Session 是树——两者都放这里，由模式各自取用（互不干扰）。
+   */
+  _session: null,
+  /** Session 的随附元信息（PGN 头、总步数等，重进打谱页时恢复标题用） */
+  _sessionMeta: null,
   /** 当前会话来自哪个模式（'analyze' / 'play' / 'replay' …）；避免跨模式误复用 */
   _mode: '',
   /** 最近一次分析结果：{ fen, result, lines, engineSource, engineLabel, engineNotice, evalPercent, evalLabel, analysisMeta } */
   _analysis: null,
+  /**
+   * 待送达的目标页参数（url query 的解析结果）。
+   * 起因：预览运行时对带 query 的 navigateTo 报「未找到页面」，导航层会退到
+   * 「不带 query 的 url」重试；参数就从 query 挪到这里，由目标页 onLoad 取回，
+   * 页面行为不变（见 utils/navigation.js#mergeLaunchOptions）。
+   */
+  _pendingParams: null,
 
   setGame(game, mode) {
     this._game = game
@@ -30,6 +44,20 @@ const store = {
 
   getGame() {
     return this._game
+  },
+
+  setSession(session, mode, meta) {
+    this._session = session || null
+    this._sessionMeta = meta || null
+    if (mode != null) this._mode = mode
+  },
+
+  getSession() {
+    return this._session
+  },
+
+  getSessionMeta() {
+    return this._sessionMeta
   },
 
   getMode() {
@@ -44,11 +72,26 @@ const store = {
     return this._analysis
   },
 
+  /** 导航层写入目标页参数（每次跳转前重置，避免上一次的残留串到这一次） */
+  setPendingParams(params) {
+    this._pendingParams = params || null
+  },
+
+  /** 目标页取走参数：取后即清，保证「一次性送达」语义 */
+  takePendingParams() {
+    const p = this._pendingParams
+    this._pendingParams = null
+    return p
+  },
+
   /** 测试与冷启动用：清空全部会话状态 */
   reset() {
     this._game = null
+    this._session = null
+    this._sessionMeta = null
     this._mode = ''
     this._analysis = null
+    this._pendingParams = null
   }
 }
 

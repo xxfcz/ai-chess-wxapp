@@ -1,0 +1,235 @@
+/* pages/replay/replay.wxss —— 打谱模式页面样式
+   通用原子类（.card/.row/.btn/.muted/.tiny/.head/.error 等）在 app.wxss 全局生效，
+   这里只写本模式专属的：空状态、棋谱信息、分支 chips、PGN 输入框、日志。 */
+
+.page {
+  height: 100vh;
+  padding: 20rpx 16rpx 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.body {
+  flex: 1;
+  min-height: 0;
+  -webkit-overflow-scrolling: touch;
+  overflow-y: auto;
+  touch-action: pan-y;
+  overscroll-behavior: contain;
+}
+
+.anchor {
+  height: 0;
+}
+
+/* ------------------------------------------------------------ 空状态 */
+
+.intro {
+  margin: 16rpx 0;
+  padding: 32rpx 28rpx;
+}
+
+.intro-title {
+  display: block;
+  font-size: 40rpx;
+  font-weight: 600;
+  color: #f0b232;
+  margin-bottom: 12rpx;
+}
+
+.intro-sub {
+  display: block;
+  font-size: 25rpx;
+  line-height: 1.65;
+}
+
+/* ------------------------------------------------------ 棋谱信息 / 步进 */
+
+.info-card {
+  margin-top: 16rpx;
+}
+
+.step-row {
+  align-items: center;
+  margin-top: 12rpx;
+}
+
+.step-label {
+  font-size: 28rpx;
+  color: #e9ecf5;
+}
+
+.tag-variation {
+  margin-left: 12rpx;
+  padding: 2rpx 12rpx;
+  font-size: 20rpx;
+  color: #e8a34f;
+  border: 2rpx solid #6b542f;
+  border-radius: 10rpx;
+}
+
+/* -------------------------------------------------------- 分支选择 chips */
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  margin-top: 4rpx;
+}
+
+/* 全局只有 .chip-ok/.chip-warn 的配色，缺基础外观；这里补一份本页可用的 chip */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 10rpx 20rpx;
+  margin: 0 14rpx 14rpx 0;
+  border: 2rpx solid #2d3548;
+  border-radius: 999rpx;
+  background-color: #12161f;
+  color: #c8cfdd;
+  font-size: 24rpx;
+  font-family: Menlo, Consolas, monospace;
+}
+
+.chip.chip-ok {
+  color: #35c26b;
+  border-color: #2f6b45;
+  background-color: #11251a;
+}
+
+/* ------------------------------------------------------------- PGN 输入 */
+
+.import-card {
+  margin-top: 16rpx;
+}
+
+.pgn-input {
+  width: 100%;
+  min-height: 200rpx;
+  padding: 18rpx 20rpx;
+  background-color: #12161f;
+  border: 2rpx solid #2d3548;
+  border-radius: 14rpx;
+  color: #e9ecf5;
+  font-size: 23rpx;
+  line-height: 1.55;
+  font-family: Menlo, Consolas, monospace;
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: text;
+}
+
+.pgn-placeholder {
+  color: #5c6577;
+  font-size: 22rpx;
+}
+
+.pgn-actions {
+  flex-wrap: wrap;
+  align-items: center;
+  margin: 16rpx 0 8rpx;
+}
+
+.pgn-actions .btn {
+  margin-right: 14rpx;
+}
+
+/* --------------------------------------------------------------- Tab 栏 */
+
+.tabs {
+  flex-shrink: 0;
+  display: flex;
+  margin: 14rpx 0 22rpx;
+  background-color: #141922;
+  border: 2rpx solid #2d3548;
+  border-radius: 16rpx;
+  overflow: hidden;
+}
+
+.tab {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 72rpx;
+  padding: 0 6rpx;
+  font-size: 23rpx;
+  color: #8d96ad;
+  border-right: 2rpx solid #2d3548;
+  cursor: pointer;
+}
+
+.tab:last-child {
+  border-right: none;
+}
+
+.tab-active {
+  background-color: #f0b232;
+  color: #241c07;
+  font-weight: 600;
+}
+
+.tab-label {
+  line-height: 1.2;
+  text-align: center;
+}
+
+/* ------------------------------------------------------------ 卡片/日志 */
+
+.log-actions {
+  display: flex;
+  flex-wrap: wrap;
+  margin-top: 16rpx;
+}
+
+.log-actions .btn {
+  margin: 0 12rpx 12rpx 0;
+}
+
+.log-box {
+  margin-top: 12rpx;
+  padding: 12rpx 16rpx;
+  border-radius: 12rpx;
+  background-color: #12161f;
+  border: 2rpx solid #232a3a;
+}
+
+.log-row {
+  display: flex;
+  align-items: flex-start;
+  padding: 6rpx 0;
+  border-bottom: 2rpx solid #1b2130;
+}
+
+.log-row:last-child {
+  border-bottom: none;
+}
+
+.log-time {
+  width: 108rpx;
+  flex-shrink: 0;
+  font-size: 20rpx;
+  color: #6f778a;
+  font-family: Menlo, Consolas, monospace;
+}
+
+.log-level {
+  width: 76rpx;
+  flex-shrink: 0;
+  font-size: 20rpx;
+  font-family: Menlo, Consolas, monospace;
+}
+
+.level-info { color: #7fb0ff; }
+.level-log { color: #8d96ad; }
+.level-warn { color: #f0b232; }
+.level-error { color: #ff8b7a; }
+
+.log-text {
+  flex: 1;
+  font-size: 21rpx;
+  line-height: 1.5;
+  color: #c8cfdd;
+  word-break: break-all;
+}

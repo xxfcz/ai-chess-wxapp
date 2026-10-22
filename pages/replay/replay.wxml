@@ -1,0 +1,194 @@
+<view class="page">
+
+  <!-- 棋盘只读：打谱不改棋谱，落子能力留给对弈/分析模式（8×8 view 网格，不依赖 Canvas）。 -->
+  <board-view
+    wx:if="{{hasGame}}"
+    cells="{{cells}}"
+    boardSize="{{boardSize}}"
+    cellSize="{{cellSize}}"
+    pieceFont="{{pieceFont}}"
+    labelFont="{{labelFont}}"
+    evalPercent="{{evalPercent}}"
+  />
+
+  <scroll-view scroll-y class="body" scroll-into-view="{{tabAnchor}}">
+    <view id="{{tabAnchor}}" class="anchor"></view>
+
+    <!-- 空状态：还没导入棋谱时，页面只有一句话 + 导入卡 -->
+    <view wx:if="{{!hasGame}}" class="card intro">
+      <text class="intro-title">打谱</text>
+      <text class="intro-sub muted">粘贴一段 PGN，逐步回放并让引擎标注每一步；AI 点评里的分支可以直接点开演示。</text>
+    </view>
+
+    <!-- 棋谱信息 + 当前步 -->
+    <view wx:if="{{hasGame}}" class="card info-card">
+      <view class="row head">
+        <text class="section-title">{{gameTitle}}</text>
+        <view class="gap"></view>
+        <text class="muted tiny">{{stepNo}}/{{stepTotal}}</text>
+      </view>
+      <text wx:if="{{gameMeta}}" class="muted tiny">{{gameMeta}}</text>
+      <view class="row step-row">
+        <text class="step-label">{{stepLabel}}</text>
+        <text wx:if="{{inVariation}}" class="tag-variation">变例</text>
+        <view class="gap"></view>
+        <view class="chip" bindtap="onGotoEnd">跳到末尾</view>
+      </view>
+      <text wx:if="{{pathLine}}" class="tech-detail">{{pathLine}}</text>
+    </view>
+
+    <!-- 分支选择：只有当前局面存在多条续着时才出现（单线局面用「前进」就够了） -->
+    <view wx:if="{{hasGame && branchPoint}}" class="card">
+      <view class="row head">
+        <text class="section-title">此局面的续着</text>
+        <view class="gap"></view>
+        <text class="muted tiny">点一下跳到该分支</text>
+      </view>
+      <view class="chips">
+        <view
+          wx:for="{{childOptions}}"
+          wx:key="key"
+          class="chip {{item.main ? 'chip-ok' : ''}}"
+          data-node="{{item.id}}"
+          bindtap="onGotoNode"
+        >{{item.label}}</view>
+      </view>
+    </view>
+
+    <!-- 状态条：后退/前进 = 上一步/下一步；重置 = 回到起始局面 -->
+    <session-bar
+      wx:if="{{hasGame}}"
+      statusLabel="{{statusLabel}}"
+      statusTone="{{statusTone}}"
+      turnClass="{{turnClass}}"
+      flipped="{{flipped}}"
+      evalLabel="{{evalLabel}}"
+      terminalLabel="{{terminalLabel}}"
+      canUndo="{{canUndo}}"
+      canRedo="{{canRedo}}"
+      bind:undo="onStepBack"
+      bind:redo="onStepForward"
+      bind:reset="onReset"
+      bind:flip="onFlip"
+    />
+
+    <!-- 每步引擎标注 -->
+    <engine-panel
+      wx:if="{{hasGame && activeTabKey === 'engine'}}"
+      engineLabel="{{engineLabel}}"
+      engineSource="{{engineSource}}"
+      analyzing="{{analyzing}}"
+      depthOptions="{{depthOptions}}"
+      depthIndex="{{depthIndex}}"
+      analysisLines="{{analysisLines}}"
+      analysisError="{{analysisError}}"
+      engineNotice="{{engineNotice}}"
+      bind:depthchange="onDepthChange"
+      bind:analyze="onAnalyze"
+      bind:linepreview="onPreviewLine"
+    />
+
+    <!-- 云端 AI 点评：分支可点，进入演示后不影响棋谱位置 -->
+    <comment-card
+      wx:if="{{hasGame && activeTabKey === 'coach'}}"
+      cloudReady="{{cloudReady}}"
+      commenting="{{commenting}}"
+      commentingHint="{{commentingHint}}"
+      coachText="{{coachText}}"
+      coachError="{{coachError}}"
+      cloudHint="{{cloudHint}}"
+      coachModel="{{coachModel}}"
+      coachSegments="{{coachSegments}}"
+      demoLines="{{demoLines}}"
+      demoActive="{{demoActive}}"
+      demoBreadcrumb="{{demoBreadcrumb}}"
+      demoPlaying="{{demoPlaying}}"
+      demoCanBack="{{demoCanBack}}"
+      demoCanForward="{{demoCanForward}}"
+      coachDetail="{{coachDetail}}"
+      debugEnabled="{{debugEnabled}}"
+      bind:coach="onCoach"
+      bind:copy="onCopyCoach"
+      bind:coachlongpress="onCoachLongPress"
+      bind:coachtokentap="onCoachTokenTap"
+      bind:demoenter="onEnterDemo"
+      bind:demostep="onDemoStep"
+      bind:demoplay="onDemoPlay"
+      bind:demoexit="onDemoExit"
+      bind:linelongpress="onLineLongPress"
+    />
+
+    <!-- 走子记录：打谱模式下每一步可点定位（当前所在那一手高亮） -->
+    <move-list
+      wx:if="{{hasGame && activeTabKey === 'moves'}}"
+      moveRows="{{moveRows}}"
+      moveCount="{{moveCount}}"
+      interactive="{{true}}"
+      bind:movetap="onGotoNode"
+    />
+
+    <!-- 调试面板 -->
+    <view wx:if="{{debugEnabled}}" class="card">
+      <view class="row head">
+        <text class="section-title">调试面板</text>
+        <view class="gap"></view>
+        <view class="btn small" bindtap="onToggleDebug">{{debugOpen ? '收起' : '展开'}}</view>
+      </view>
+      <text wx:if="{{analysisMeta}}" class="tech-detail">{{analysisMeta}}</text>
+      <text wx:if="{{!debugOpen}}" class="muted tiny">出错时把这里的内容复制出来，就能看到失败在哪一步（共 {{debugCount}} 条）。</text>
+      <view wx:if="{{debugOpen}}" class="log-actions">
+        <view class="btn small" bindtap="onCopyDebug">复制全部</view>
+        <view class="btn small" bindtap="onClearDebug">清空</view>
+        <view class="btn small" bindtap="onToggleEnableDebug">{{debugEnabled ? '关闭真机调试面板' : '打开真机调试面板'}}</view>
+      </view>
+      <view wx:if="{{debugOpen}}" class="log-box">
+        <view wx:for="{{debugRows}}" wx:key="key" class="log-row">
+          <text class="log-time">{{item.time}}</text>
+          <text class="log-level level-{{item.level}}">{{item.level}}</text>
+          <text class="log-text">{{item.text}}</text>
+        </view>
+        <text wx:if="{{!debugRows.length}}" class="muted tiny">暂无日志。</text>
+      </view>
+    </view>
+
+    <!-- 导入 PGN：有棋谱后折叠，随时可以换一盘 -->
+    <view class="card import-card">
+      <view class="row head" bindtap="onToggleImport">
+        <text class="section-title">导入 PGN</text>
+        <view class="gap"></view>
+        <text class="muted tiny">{{pgnCollapsed ? '展开 ▾' : '收起 ▴'}}</text>
+      </view>
+      <view wx:if="{{!pgnCollapsed}}">
+        <textarea
+          class="pgn-input"
+          value="{{pgnInput}}"
+          placeholder="粘贴 PGN，例如 1. e4 e5 2. Nf3 Nc6 …（支持 [Event] 头与 (变例)）"
+          placeholder-class="pgn-placeholder"
+          maxlength="-1"
+          bindinput="onPgnInput"
+        />
+        <view class="row pgn-actions">
+          <view class="btn primary" bindtap="onImport">载入</view>
+          <view class="chip" bindtap="onUseSample">填入示例</view>
+          <view class="chip" bindtap="onPastePgn">从剪贴板载入</view>
+        </view>
+        <text wx:if="{{importError}}" class="error">{{importError}}</text>
+        <text wx:else class="muted tiny">{{pgnHint}}</text>
+      </view>
+    </view>
+  </scroll-view>
+
+  <!-- Tab 栏：与 analyze/play 一致的 3 Tab（≤3 轮、不新增底部 tabBar） -->
+  <view wx:if="{{hasGame}}" class="tabs">
+    <view
+      wx:for="{{tabs}}"
+      wx:key="key"
+      class="tab {{activeTabKey === item.key ? 'tab-active' : ''}}"
+      data-tab="{{item.key}}"
+      bindtap="onSwitchTab"
+    >
+      <text class="tab-label">{{item.label}}</text>
+    </view>
+  </view>
+
+</view>
