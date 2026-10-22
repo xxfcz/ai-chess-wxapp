@@ -1,6 +1,6 @@
 {
   "libVersion": "3.17.3",
-  "projectname": "chess-ai-assistant",
+  "projectname": "ai-chess-tutor",
   "condition": {},
   "setting": {
     "urlCheck": false,

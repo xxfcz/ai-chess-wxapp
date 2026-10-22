@@ -193,6 +193,64 @@ async function main() {
   H.ok(debugLog.text().indexOf('[导航] 失败') !== -1, '失败时日志记下失败原因')
   H.ok(debugLog.text().indexOf('[导航] 试过') !== -1, '每一种失败的形式都逐条记进日志')
 
+  /* ------------------------- 9. 引擎连通性探测（只读诊断） */
+  H.section('9. 引擎连通性探测')
+
+  const remoteEngine = require(path.join(ROOT, 'utils', 'remote-engine.js'))
+  const engineBefore = remoteEngine.state()
+
+  // 9a. 宿主收了请求却永不回调：必须靠自己的计时器兜底，界面不能一直「探测中」
+  const hangWx = makeWx('', false)
+  hangWx.request = function () { return {} }
+  const p11 = createLanding(hangWx)
+  p11._probeTimeoutMs = 60
+  p11.onProbeEngine()
+  H.ok(p11.data.probing === true, '先置「探测中」，重复点击会被挡掉')
+  await sleep(300)
+  H.ok(p11.data.probing === false, '超时后复位探测中状态（不会一直转）')
+  H.ok(p11.data.engineHint.indexOf('不回调') !== -1, '宿主不回调时给出可读原因')
+  H.eq(p11.data.engineRows.length, 3, '端点 + healthz + /v1 三行')
+  H.ok(p11.data.engineRows.every(r => typeof r.levelClass === 'string'), '每行都带样式类（模板直接渲染）')
+  H.ok(p11.data.engineRows.some(r => r.level === 'error'), '失败行标为错误')
+
+  // 9b. 两条都通：healthz 与 /v1 都给出可核对的细节
+  const goodWx = makeWx('', false)
+  goodWx.request = function (o) {
+    if (o.url.indexOf('/healthz') !== -1) {
+      o.success({ statusCode: 200, data: { status: 'ok', engine: { version: 'Stockfish 15.1' }, pool: { size: 8, idle: 8 } } })
+    } else {
+      o.success({ statusCode: 200, data: { type: 'bestmove', lines: [{ rank: 1, san: 'd4', uci: 'd2d4', scoreCp: 20 }] } })
+    }
+  }
+  const p12 = createLanding(goodWx)
+  p12.onProbeEngine()
+  await sleep(200)
+  H.ok(p12.data.engineHint === '通', '两条都通时结论就是「通」')
+  const goodText = JSON.stringify(p12.data.engineRows)
+  H.ok(goodText.indexOf('Stockfish 15.1') !== -1, 'healthz 行带引擎版本（可直接核对连的是哪台）')
+  H.ok(goodText.indexOf('d4') !== -1, 'v1 行带最佳着法（证明真的算了一步）')
+
+  // 9c. 沙箱路径白名单：预览面板的典型失败
+  const blockedWx = makeWx('', false)
+  blockedWx.request = function (o) { o.fail({ errMsg: 'request:fail path not allowed' }) }
+  const p13 = createLanding(blockedWx)
+  p13.onProbeEngine()
+  await sleep(200)
+  H.ok(p13.data.engineHint.indexOf('只放行特定路径') !== -1, '识别为宿主路径白名单')
+
+  // 9d. 域名白名单：真机 / 体验版的典型失败
+  const domainWx = makeWx('', false)
+  domainWx.request = function (o) { o.fail({ errMsg: 'request:fail url not in domain list' }) }
+  const p14 = createLanding(domainWx)
+  p14.onProbeEngine()
+  await sleep(200)
+  H.ok(p14.data.engineHint.indexOf('合法域名白名单') !== -1, '识别为域名白名单')
+
+  // 9e. 探测必须只读：不得改动引擎的熔断/屏蔽状态
+  const engineAfter = remoteEngine.state()
+  H.eq(engineAfter.failStreak, engineBefore.failStreak, '探测不改熔断计数')
+  H.eq(engineAfter.permanentlyBlocked, engineBefore.permanentlyBlocked, '探测不改永久屏蔽标记')
+
   return H.summary('landing.test.js')
 }
 

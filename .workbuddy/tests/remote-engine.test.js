@@ -321,6 +321,18 @@ async function main() {
   H.eq(r.source, 'local', '网关 403 + HTML 落到本地')
   H.eq(r.degradedFrom, 'GATEWAY_BLOCK', '403 + HTML「请在浏览器中打开」标记为 GATEWAY_BLOCK')
 
+  // 服务端自己回的 JSON 403（风控/限流/来源校验）不是环境屏蔽：
+  // 否则一次临时风控就会把整个会话永久钉在本地引擎上，且界面上看不出区别。
+  resetEnv()
+  remote.setFallback(fakeLocal())
+  installWx(options => {
+    options.success({ statusCode: 403, data: { type: 'error', error: 'FORBIDDEN', text: '来源校验未通过' } })
+  })
+  r = await remote.analyze({ fen: MIDDLE_FEN, multiPV: 3 })
+  H.eq(r.source, 'local', '403 + JSON 仍回落本地')
+  H.ok(!remote.state().permanentlyBlocked, '403 + JSON 不标记永久屏蔽（下次还会重试）')
+  H.eq(r.degradedFrom, 'FORBIDDEN', '错误码透传为服务端给的 FORBIDDEN')
+
   /* ------------------------------------------------------ 5. 限流重试 */
   H.section('5. 限流退避重试一次（05 协议 §6）')
 

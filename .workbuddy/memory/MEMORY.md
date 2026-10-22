@@ -24,13 +24,30 @@
 - 协议权威：`E:\WorkBuddy\ai-chess-server\docs\05-小程序接入协议.md`。判错看 `body.type==='error'`；只用 `lines[].scoreCp/scoreMate`（行棋方视角）。
 - 行为：终局/非法FEN 本地前置拦截；失败/超时回落本地带 `degradedFrom`（不静默）；连续 2 次失败熔断 60s；400 类不回落直接抛。
 - 换域名只改 `remote-engine.js#DEFAULT_ENDPOINT`，**不要写进 `cloud-config.js`**（那是 LLM 凭据位）。
-- **真机/预览硬阻塞**：`app.workbuddy.host` 是 CloudStudio 预览域名——H5 预览 `path not allowed`、真机 403 移动 UA；要让 remote 真机可用必须**自有 ICP 备案域名** + mp 后台配 request 合法域名。代码侧归类为永久屏蔽 `GATEWAY_BLOCK`，界面显形提示。
+- **真机/预览硬阻塞（2026-10-22 更正）**：`403 移动 UA` 只对 **CloudStudio 预览域名**成立，**不要套到 `chess.imex.de5.net`**——当天用完整 iPhone/Android MicroMessenger UA 实测 `GET /healthz` 与 `POST /v1` 均 **200**（Caddy 反代，Stockfish 15.1，pool 8）。真阻塞只有一处：**WorkBuddy 预览面板**的沙箱只放行 `mp-api.app.workbuddy.host` 的 `/.cloud/*`，`chess.imex.de5.net` 一律 `path not allowed`（换域名/换后端都没用，除非走该路径）。代码侧仍归类永久屏蔽 `GATEWAY_BLOCK` + 界面显形。
+- **四环境通路矩阵（2026-10-22 结论）**：无单通道能覆盖四个环境，LLM 通道与引擎通道的可用集合近乎互补。
+  - 开发者工具「模拟器」「真机调试」：`urlCheck:false` / 调试态免校验 → 引擎与 LLM **都通**（真机调试仍需有效 HTTPS 证书）。
+  - 开发者工具「**预览**扫码」：**不校验开关不生效**，且当前 `project.config.json` 是**测试号** `wxe91834e9c2546603`（不能配服务器域名、不能开云开发）→ 两条**都断**。这是身份问题，不是架构问题；换正式 AppID 才解。
+  - WorkBuddy 预览面板：LLM 通（有分块降级适配器）、引擎断（沙箱路径白名单）。
+  - WorkBuddy 真机试用：LLM 通（受管 AppID 白名单已含 mp-api）；引擎按文档 10-16 记录为通，待复验。
+  - **2026-10-22 23:45 实测更正（正式号 + 新应用后）**：开发者工具**真机都断**、WorkBuddy **预览都断**、
+    体验版真机 **引擎通 / 点评断**。点评断的根因是**凭据被吊销**（非域名、非环境），已换新 key；
+    引擎只在「预览面板」被沙箱路径白名单挡住，体验版真机是通的。判断环境限制前先分清**凭据 / 域名白名单 / 沙箱路径**三类。
+- **禁止**：不要为了这个去照搬「微信云开发 dev/prod 双环境 + 前端只调 `wx.cloud.callFunction`」通稿——`wx.cloud` 绑你自己的 AppID，WorkBuddy 受管 AppID 里调不通、预览面板也没有 `wx.cloud`；`wx.cloud.callFunction` 确实**免域名白名单**且云函数**出网不受限**，这是「自己 AppID 那半边」的正解，只覆盖微信侧。
 - 选型结论存档（不再展开）：倾向自建 VPS（非云托管）；香港机 `112.121.168.204` 不能备案→需大陆备案域名；Stockfish 仅服务端运行，二进制/wasm 不进小程序包（GPL 不传染）。`远端引擎接入方案-chess-api.md` 的 D14「WS 为主」已不适用。
+- **`ENGINE_ENDPOINT_DEV` 已停用（2026-10-22）**：原 `http://112.121.168.204:8787` TCP 能连但服务端零响应（开发者工具 `net::ERR_EMPTY_RESPONSE`，与 Chrome 同源）；明文 HTTP + 裸 IP 是最脆一段。现 `.env` 里注释掉，develop 与 release 同走 https 域名（同机同进程，证书有效期至 2027-01-14，`/v1` 实测 200）。**不要在链路上给 develop 分叉**。
+- **引擎诊断工具**：`utils/engine-probe.js#probe()` + Landing 调试面板「开始探测」。只读探 `GET /healthz` + `POST /v1`，逐行给状态码/耗时/宿主 errMsg，并按 `path not allowed`（沙箱路径）/`not in domain list`（域名白名单）/403/超时分类。四宿主失败原因完全不同，**先探测再猜**。
+- **403 判定已收紧**：`isEnvironmentBlock` 只把「403 + 非 JSON（网关 HTML 页）」当环境屏蔽；`403 + JSON`（服务端风控/限流）走普通回落+熔断，不再把一个会话永久钉在本地引擎上。
 
 ## 云服务接入惯例（LLM 点评）
+- 当前应用 = **`wbapp_WqKyrxADH6O75kZ4NkuiMj`**（国象AI分析，同时是发布载体），`resourceId=wbcs_aQshikXep9897QNbJ79hcs`。
 - 凭证只在 `utils/cloud-config.js#publicConfig`（`endpoint`+`publishableKey`，随前端发布）。
-- 隐蔽回归点：每次重建/重发后 `publishableKey` 前缀不会自动更新，必须人工核对前缀==当前 applicationId。
+- **删应用 = 吊销该应用全部 publishableKey**（2026-10-22 实测：删「黑白格大师」后 `401 invalid_client`，
+  点评在**所有**环境同时失效，表象却只是「网络连接失败」）。故前缀必须等于当前 appId，`wbpk_<appId>_…`。
+- **凭据死活一条 curl 判定**（不用等真机）：`GET {endpoint}/.cloud/llm/models` + 头 `x-wb-webapp-access-key: <publishableKey>`，
+  200=活 / `401 invalid_client`=吊销。LLM 真实调用 = `POST /.cloud/llm/chat/completions`（stream 必须 true）。
 - 四步闭环：开通(reuse appId)→改凭证→隐私清单→真实探针（探针用完即删）。隐私清单最小声明（仅 `Clipboard`）。「测试全绿≠云可用」。
+- 修改凭证后**必须重新上传体验版/正式版**才生效（已发布的包还是旧 key）。
 
 ## 交互设计三条硬结论
 - 不做聊天窗口（挤占棋盘+与 Tab 内不各自滚动冲突），用同 Tab 对话卡片流。
@@ -70,9 +87,9 @@
 
 ## 回归测试门禁
 `.workbuddy/tests/` 零依赖（`_harness.js`）。managed node：`C:/Users/Administrator/.workbuddy/binaries/node/versions/22.22.2-6/node.exe`
-- 页面层：`analyze-page 237` / `play-page 78` / `replay-page 125`（L2-T7 新增）/ `landing 46` / `navigation 35` / `session 46`
+- 页面层：`analyze-page 237` / `play-page 78` / `replay-page 125`（L2-T7 新增）/ `landing 59` / `navigation 35` / `session 46`
 - 解析层：`pgn-tree 55`（L2-T7 新增）
-- 服务层：`engine-and-game 153` / `cloud-adapter 68` / `remote-engine 82` / `analysis-service 35` / `coach-service 15` / `agent-tools 48` / `comment-model 31` / `engine-config 30` / `coach-demo`（独立脚本）
+- 服务层：`engine-and-game 153` / `cloud-adapter 68` / `remote-engine 85` / `analysis-service 35` / `coach-service 15` / `agent-tools 48` / `comment-model 31` / `engine-config 30` / `coach-demo`（独立脚本）
 - 页面测试开头 `ai.setEngineMode('local')`；等待一律 `waitFor()` 轮询（超时 15s），不写死 `sleep`。引擎回着/收尾分析要等 `myTurn===true`（而非仅 moveCount），否则会读到 `engineThinking` 未复位的中间态。
 - WXML 静态守卫扫 `pages/` + `components/`（单包后已无分包 root；代码保留 `subPackages` 兼容分支，改名不会静默漏扫）。
 

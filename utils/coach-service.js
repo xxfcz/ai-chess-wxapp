@@ -480,6 +480,26 @@ function llmErrorInfo(err) {
   const wrap = (message, kind) => ({ message: message, detail: detail, kind: kind })
 
   if (code === 'env_no_network') return wrap(String(err.message || ENV_NO_NETWORK_TEXT), 'env')
+
+  // 下面两类问题的表象和「网络不通」一模一样，但处理方式完全不同，
+  // 必须单独认出来，否则用户只会照提示去查网络，永远查不到真正原因。
+  const rawText = [cause, err && err.message ? String(err.message) : '', detail].join(' ')
+  // ① 域名白名单：真机/体验版/正式版都会生效，`urlCheck:false` 只在开发者工具与真机调试里有效
+  if (/not in domain list|不在以下 request 合法域名列表中/i.test(rawText)) {
+    return wrap(
+      '请求被小程序域名白名单拦下了。请在 mp 后台把 https://mp-api.app.workbuddy.host 加入「request 合法域名」；' +
+        '开发者工具里能通、真机不通通常就是这个原因。端上引擎分析不受影响。',
+      'network'
+    )
+  }
+  // ② 凭据被吊销：应用被删除或重建后，旧 publishableKey 会失效（服务端回 401 invalid_client）
+  if (/invalid_client|client credential/i.test(rawText)) {
+    return wrap(
+      '云服务凭据已失效（对应应用被删除或重建后会出现）。需要重新开通云服务，并把新的 publishableKey 写回 utils/cloud-config.js。',
+      'auth'
+    )
+  }
+
   if (code.indexOf('request_') === 0) return wrap('请求参数有误，本次点评未能完成。', 'request')
   if (code.indexOf('auth_') === 0) return wrap('云服务鉴权未通过，请稍后重试。', 'auth')
   if (code.indexOf('quota_') === 0) {

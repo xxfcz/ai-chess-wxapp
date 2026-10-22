@@ -415,8 +415,12 @@ function isEnvironmentBlock(err, res) {
   const msg = err && String(err.errMsg || err.message || '')
   if (/path not allowed/i.test(msg)) return true
   const status = res && res.statusCode
-  if (status === 403) return true
   const data = res && res.data
+  // 403 要分两种：网关回的 HTML 页（环境拦死，重试无意义）才算屏蔽；
+  // 服务端自己回的 JSON 403（风控/限流/来源校验）是普通失败，走回落+熔断即可。
+  // 否则一次临时风控就会把整个会话永久钉在本地引擎上，排查时看不出任何变化。
+  const jsonBody = typeof data === 'object' && data !== null
+  if (status === 403 && !jsonBody) return true
   if (typeof data === 'string' && /<!doctype|请在浏览器中打开|CloudStudio/i.test(data)) return true
   return false
 }

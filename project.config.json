@@ -2,7 +2,7 @@
   "description": "国际象棋 AI 辅助分析小程序",
   "miniprogramRoot": "./",
   "compileType": "miniprogram",
-  "appid": "wxe91834e9c2546603",
+  "appid": "wxd3f1d012e71052a9",
   "projectname": "chess-ai-analyzer",
   "libVersion": "3.5.5",
   "setting": {
@@ -53,5 +53,6 @@
     }
   },
   "simulatorPluginLibVersion": {},
-  "editorSetting": {}
+  "editorSetting": {},
+  "isGameTourist": false
 }

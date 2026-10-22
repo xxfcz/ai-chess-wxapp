@@ -72,6 +72,18 @@
       >{{item.name}}</text>
     </view>
 
+    <!-- 引擎连通性：四个宿主失败原因完全不同，点一下把原因量出来 -->
+    <view class="row debug-actions">
+      <text class="debug-sub">引擎连通性</text>
+      <view class="gap"></view>
+      <text class="btn tiny" bindtap="onProbeEngine">{{probing ? '探测中…' : '开始探测'}}</text>
+    </view>
+    <text wx:if="{{engineHint}}" class="tiny debug-hint">{{engineHint}}</text>
+    <view wx:for="{{engineRows}}" wx:key="key" class="debug-row">
+      <text class="debug-level {{item.levelClass}}">{{item.level}}</text>
+      <text class="debug-text" user-select="{{true}}">{{item.name}} · {{item.detail}}</text>
+    </view>
+
     <text wx:if="{{debugCount === 0}}" class="tiny muted debug-empty">暂无日志</text>
     <view wx:for="{{debugRows}}" wx:key="key" class="debug-row">
       <text class="debug-time">{{item.time}}</text>

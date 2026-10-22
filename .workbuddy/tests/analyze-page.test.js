@@ -520,6 +520,29 @@ async function main() {
   H.ok(notFound.detail.indexOf('HTTP 404') !== -1, '404 详情带 HTTP 状态码')
   H.eq(ai.shouldTryNextModel({ message: 'Not found', status: 404 }, null), false, '404 不应换模型重试')
 
+  // 域名白名单 / 凭据吊销：表象都像「网络不通」，必须各自给出可执行的处理方式
+  const domainBlocked = ai.llmErrorInfo({
+    error: { code: 'gateway_network_error' },
+    message: 'request:fail url not in domain list'
+  })
+  H.eq(domainBlocked.kind, 'network', '域名白名单拦截归类为 network')
+  H.ok(domainBlocked.message.indexOf('mp-api.app.workbuddy.host') !== -1,
+    '域名白名单拦截必须点名要加的域名')
+  H.eq(ai.shouldTryNextModel({
+    error: { code: 'gateway_network_error' }, message: 'request:fail url not in domain list'
+  }, null), false, '域名白名单拦截换模型也没用')
+
+  const revoked = ai.llmErrorInfo({
+    error: { code: 'gateway_invalid_response' },
+    message: '{"error":"invalid_client","error_description":"the client credential is invalid or revoked"}',
+    status: 401
+  })
+  H.eq(revoked.kind, 'auth', '凭据被吊销归类为 auth')
+  H.ok(revoked.message.indexOf('cloud-config') !== -1, '凭据失效必须指出去改 cloud-config')
+  H.eq(ai.shouldTryNextModel({
+    error: { code: 'gateway_invalid_response' }, message: 'invalid_client', status: 401
+  }, null), false, '凭据失效不应换模型重试')
+
   H.eq(ai.shouldTryNextModel({ error: { code: 'gateway_timeout' } }), true, '超时值得换模型重试')
   H.eq(ai.shouldTryNextModel({ error: { code: 'gateway_network_error' } }), false, '链路失败重试没意义')
   H.eq(ai.shouldTryNextModel({ error: { code: 'gateway_timeout' } }, { aborted: true }), false,

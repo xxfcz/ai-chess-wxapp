@@ -15,7 +15,11 @@
   远端不可用时**自动回落端上**，界面必须标注实际来源（见 §4.1）。
 - 云服务只用于「AI 教练点评」（流式 LLM），走云服务内置的大模型网关，**免 API Key**。
 
-云服务应用 id：`wbapp_Q0BvUcC34QxiYVHs0aFeay`（appType=miniprogram，名称「国象AI分析」）。
+云服务应用 id：`wbapp_WqKyrxADH6O75kZ4NkuiMj`（appType=miniprogram，名称「国象AI分析」，同时是发布载体）。
+`utils/cloud-config.js#publishableKey` 的前缀**必须**等于当前应用 id（`wbpk_<appId>_…`），
+**应用被删除或重建会直接吊销旧凭据**（服务端回 `401 invalid_client`），此时所有 AI 点评都会失败，
+必须重新开通云服务换 key——这条不核对，就会出现「界面一切正常、点评永远出不来」。
+历史应用（已删除，勿再引用）：`wbapp_XuxCaYOHVeBjdrJ4UfSMX6`（黑白格大师）、`wbapp_Q0BvUcC34QxiYVHs0aFeay`。
 
 ## 2. 技术栈与运行环境
 
@@ -114,16 +118,27 @@ docs/                            问题排查与修复记录.md（历史排障�
 
 ```
 ENGINE_ENDPOINT=https://chess.imex.de5.net   # 通用/正式
-ENGINE_ENDPOINT_DEV=http://112.121.168.204:8787  # 仅 develop 版（开发者工具/真机调试）优先
+ENGINE_ENDPOINT_DEV=                          # 默认关闭，见下（打开时：http://裸IP:端口）
 ENGINE_MODE=remote                           # remote | local
 ENGINE_TIMEOUT_MS=10000                      # 留空用默认 10000
 ```
 
 - 换地址流程：改 `.env` → `npm run config:engine` → 重新编译小程序。
+- **`ENGINE_ENDPOINT_DEV` 当前默认关闭（2026-10-22 实测）**：原值 `http://112.121.168.204:8787` 在当前网络下
+  TCP 能连上但服务端零响应（开发者工具报 `POST http://…:8787/v1 net::ERR_EMPTY_RESPONSE`）。
+  明文 HTTP + 裸 IP 是全链路里最脆的一段（境外 IP 的自定义端口常被中间设备干扰），
+  而 `https://chess.imex.de5.net` 同机同进程、证书有效（Let's Encrypt，至 2027-01-14）、实测 `/v1` 200。
+  所以开发版改用正式地址：develop 与 release 只在白名单校验上有差别，**不该在链路上分叉**。
+  真要回内网 http 调试，在 `.env` 里取消注释并重新生成即可。
 - `ENGINE_ENDPOINT_DEV` 只在 `envVersion === 'develop'` 时生效，正式/体验版自动用正式地址——
   **http + 裸 IP + 端口只能在「开发者工具 / 真机调试 + 不校验合法域名」下用**，release 下不可用。
 - 地址一律经 `normalizeEndpoint()`：非 http(s) / 空值当没配，回落到下一级，不让拼错的地址把引擎搞挂。
-- 发布前记得在 mp 后台把正式域名加进 **request 合法域名**。
+- **排查「连不上云端引擎」先点 Landing 调试面板的「开始探测」**（`utils/engine-probe.js`）：它只读地探
+  `GET /healthz` + `POST /v1`，把状态码/耗时/宿主 errMsg 逐行显形，并按 `path not allowed` /
+  `not in domain list` / 403 / 超时分类给结论。四个宿主的失败原因完全不同，别靠猜。
+- 发布前记得在 mp 后台把正式域名加进 **request 合法域名**。本项目要加**两个**：
+  `https://chess.imex.de5.net`（云端引擎）与 `https://mp-api.app.workbuddy.host`（云服务 / AI 点评）。
+  少加后者 = 引擎正常、点评永远失败，而报错只显示「网络连接失败」（已在此分类里单独识别并点名域名）。
 
 ## 5. chess.js 本地副本的关键约定
 

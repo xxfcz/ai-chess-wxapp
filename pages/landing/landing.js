@@ -11,6 +11,7 @@
 const clipboardImport = require('../../utils/clipboard-import')
 const navigation = require('../../utils/navigation')
 const debugLog = require('../../utils/debug-log')
+const engineProbe = require('../../utils/engine-probe')
 
 /** 环境能力探测清单：预览只有接口子集，缺什么直接列出来，省得靠猜 */
 const PROBE_APIS = [
@@ -74,7 +75,11 @@ Page({
     debugText: '',
     debugCount: 0,
     debugHint: '',
-    envRows: []
+    envRows: [],
+    /** 引擎连通性探测结果：同一份包在四个宿主里失败原因完全不同，必须能逐条量出来 */
+    engineRows: [],
+    engineHint: '',
+    probing: false
   },
 
   onLoad() {
@@ -207,6 +212,42 @@ Page({
       name: name,
       ok: !!(host && typeof host[name] === 'function')
     }))
+  },
+
+  /**
+   * 探测远端引擎连通性（只读，不影响熔断/分析）。
+   * 四个宿主的失败原因完全不同（域名白名单 / 沙箱路径 / 网关 403 / 明文 HTTP 被重置 /
+   * 宿主不回调），这里一条条量出来，用户可以直接把这几行贴出来定位。
+   */
+  onProbeEngine() {
+    if (this.data.probing) return
+    this.setData({ probing: true, engineHint: '正在探测…', engineRows: [] })
+    debugLog.push('info', '[探测] 开始探测云端引擎')
+    engineProbe.probe({
+      host: typeof wx !== 'undefined' ? wx : null,
+      // 测试用它把超时压到几十毫秒，否则「宿主不回调」这条分支要等满 6 秒
+      timeoutMs: this._probeTimeoutMs
+    })
+      .then(res => {
+        const rows = (res.rows || []).map(row => Object.assign({}, row, { levelClass: 'lv-' + row.level }))
+        this.setData({
+          probing: false,
+          engineRows: rows,
+          engineHint: res.hint || ''
+        })
+        debugLog.push(res.reachable ? 'info' : 'warn',
+          '[探测] ' + (res.reachable ? '通' : '不通') + ' · ' + (res.endpoint || '') + ' · ' + (res.hint || ''))
+        rows.forEach(row => {
+          debugLog.push(row.level === 'error' ? 'warn' : 'info',
+            '[探测] ' + row.name + ' · ' + row.detail)
+        })
+      })
+      .catch(err => {
+        this.setData({
+          probing: false,
+          engineHint: '探测失败：' + ((err && err.message) || '未知原因')
+        })
+      })
   },
 
   onCopyDebug() {
