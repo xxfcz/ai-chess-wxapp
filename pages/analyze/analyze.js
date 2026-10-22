@@ -5,7 +5,7 @@
  * 棋盘不用 Canvas：网页版预览不实现 wx.createSelectorQuery，拿不到 2d 节点。
  * 改用 8×8 的 view 网格后，交互只依赖格子的 data-sq 与手指位移，任何环境都能跑。
  */
-const { Game, START_FEN } = require('../../utils/game')
+const { Game, START_FEN, isValidFen, extractFen } = require('../../utils/game')
 const geometry = require('../../utils/geometry')
 const boardModel = require('../../utils/board-model')
 const device = require('../../utils/device')
@@ -119,6 +119,8 @@ Page({
     this._lastResult = null
     this._analysisFen = ''
     this._fenEditing = false
+    /** 最近一次已询问过的剪贴板 FEN：同一内容只弹一次，避免每次 onShow 都打扰 */
+    this._lastPromptedFen = ''
     this._lastCoachAt = 0
     this._coachTimer = null
     this._coachController = null
@@ -171,6 +173,84 @@ Page({
         // 忽略重复中断
       }
     }
+  },
+
+  /**
+   * 页面每次被展示时（进入小程序 / 从后台切回 / 返回该 Tab）探测一次剪贴板：
+   * 用户从对弈平台整段复制 FEN 回来就能「自动发现」，再询问是否导入（§9 纳入 MVP）。
+   * 任何依赖 wx 的能力都先探测再降级——没有 getClipboardData 的环境（预览子集）
+   * 直接静默跳过，绝不能因为「读剪贴板」本身报错。
+   */
+  onShow() {
+    this._checkClipboardForFen()
+  },
+
+  /**
+   * 探测剪贴板里的合法 FEN。环境没有 getClipboardData 时静默降级（绝不抛错）。
+   * 与当前局面相同、或与最近一次已询问的内容相同，都不再打扰用户。
+   */
+  _checkClipboardForFen() {
+    if (this._destroyed) return
+    if (this.demoActive()) return
+    const host = typeof wx !== 'undefined' ? wx : null
+    if (!host || typeof host.getClipboardData !== 'function') return
+    host.getClipboardData({
+      success: res => {
+        if (this._destroyed) return
+        const raw = (res && typeof res.data === 'string') ? res.data : ''
+        const fen = extractFen(raw)
+        if (!fen) return
+        // 与当前局面一致没必要导入；与最近一次问过的一致不再重复弹窗
+        if (fen === this.game.getFen()) return
+        if (fen === this._lastPromptedFen) return
+        this._lastPromptedFen = fen
+        this._promptImportFen(fen)
+      },
+      fail: () => {
+        // 读不到剪贴板（如拒绝授权）：静默，不影响正常使用
+      }
+    })
+  },
+
+  /** 询问是否导入检测到的 FEN；无 showModal 能力时直接放弃（不打扰、也不偷偷改局面） */
+  _promptImportFen(fen) {
+    const host = typeof wx !== 'undefined' ? wx : null
+    if (!host || typeof host.showModal !== 'function') return
+    const preview = fen.length > 56 ? fen.slice(0, 56) + '…' : fen
+    host.showModal({
+      title: '从剪贴板导入局面',
+      content: '检测到剪贴板里有合法局面：\n' + preview + '\n是否载入并分析？',
+      confirmText: '载入',
+      cancelText: '忽略',
+      success: r => {
+        if (r && r.confirm) this._applyLoadedFen(fen)
+      }
+    })
+  },
+
+  /** 手动从剪贴板载入（WXML 里的「从剪贴板载入」按钮）；用户已显式点击，直接导入不再二次确认 */
+  onPasteClipboard() {
+    if (this.demoActive()) return
+    this._realFocus = []
+    const host = typeof wx !== 'undefined' ? wx : null
+    if (!host || typeof host.getClipboardData !== 'function') {
+      device.toast('当前环境不支持读取剪贴板')
+      return
+    }
+    host.getClipboardData({
+      success: res => {
+        if (this._destroyed) return
+        const raw = (res && typeof res.data === 'string') ? res.data : ''
+        const fen = extractFen(raw)
+        if (!fen) {
+          device.toast('剪贴板里没有合法的 FEN')
+          return
+        }
+        this._lastPromptedFen = fen
+        this._applyLoadedFen(fen)
+      },
+      fail: () => device.toast('读取剪贴板失败')
+    })
   },
 
   /* -------------------------------------------------------------- 同步 */
@@ -542,8 +622,18 @@ Page({
       device.toast('请先粘贴 FEN')
       return
     }
+    // 输入框里也可能夹着说明文字，先尝试抽取合法 FEN，抽不到再原样交给校验
+    const fen = extractFen(raw) || raw
+    this._applyLoadedFen(fen)
+  },
+
+  /**
+   * 载入并重置局面的共用逻辑（手动 FEN 输入框、剪贴板导入都走这里）。
+   * 校验失败时只 toast，不动棋局。
+   */
+  _applyLoadedFen(fen) {
     try {
-      this.game.load(raw)
+      this.game.load(fen)
     } catch (err) {
       device.toast((err && err.message) || 'FEN 不合法')
       return

@@ -40,10 +40,11 @@
 ## 规划文档
 - `docs/agent-plan.md`（总纲：术语表/命名对照/冻结契约/决策 D1~D18）+ `agent-phase1/2/3` + `agent-tutor-interactions.md`（改 Tutor 界面/文案先读）。
 - `docs/平台化产品重构方案.md`（2026-10-21：L0/L1/L2 分层 + §9 界面简化 + §11 澄清）。
+- `docs/平台化重构进度看板.md`（2026-10-22 建：**独立进度看板 + L2 Landing/分包任务分解**，跨会话续做总览）。
 - `docs/云服务接入经验总结.md` / `docs/自建引擎服务部署方案.md`。
 
 ## 平台化重构（架构与进度）
-- 三层：L0 纯功能平台层（棋局会话，已完成）/ L1 共享 UI 组件（已完成）/ L2 模式配置层（Landing + 多模式分包，**deferred**）。
+- 三层：L0 纯功能平台层（棋局会话，已完成）/ L1 共享 UI 组件（已完成）/ L2 模式配置层（Landing + 多模式分包，**未开始**，任务分解见 `docs/平台化重构进度看板.md` §2）。
 - 导航：Landing 首页（主包单页）+ 各模式分包 page（subPackage）；加模块=加分包 page + Landing 注册卡片。SPA 双视图降为可选。
 - MVP：analyze 页平台化 + 简化界面（5→3 Tab；脚注/运行日志Tab/技术细节移调试；优势文字→评估条；FEN/PGN 导入移 Landing）。
 - Tutor/Sparrer 上升为横切 `coach-service`，被所有模式消费；阶段三 Persistent Tutoring Memory 仍是跨模式画像/错题。

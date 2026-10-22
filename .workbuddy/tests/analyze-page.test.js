@@ -23,7 +23,7 @@ const APP_JSON = path.join(ROOT, 'app.json')
 const ai = require(path.join(ROOT, 'utils', 'ai-client.js'))
 const coachDemo = require(path.join(ROOT, 'utils', 'coach-demo.js'))
 const debugLog = require(path.join(ROOT, 'utils', 'debug-log.js'))
-const { Game, START_FEN } = require(path.join(ROOT, 'utils', 'game.js'))
+const { Game, START_FEN, isValidFen, extractFen } = require(path.join(ROOT, 'utils', 'game.js'))
 
 const INITIAL_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
 const sleep = ms => new Promise(r => setTimeout(r, ms))
@@ -719,6 +719,129 @@ async function main() {
 
   ai.setEngineMode('local')
   ai.remoteEngine.reset()
+
+  /* ------------------------------------- 14. 剪贴板自动导入（FEN 抽取 + 询问） */
+  H.section('14. 剪贴板自动导入')
+
+  // 14.0 纯函数：FEN 校验与抽取（复用 game.js 既有规整 + validate_fen）
+  H.ok(isValidFen(INITIAL_FEN), 'isValidFen 接受完整 FEN')
+  H.ok(isValidFen('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR'), 'isValidFen 接受只写布局的 FEN')
+  H.ok(!isValidFen('这不是 FEN'), 'isValidFen 拒绝乱码')
+  H.ok(!isValidFen('   '), 'isValidFen 拒绝空串')
+  H.ok(extractFen('prefix ' + INITIAL_FEN + ' suffix').indexOf('RNBQKBNR') !== -1,
+    'extractFen 从混排文本里抽出行内 FEN')
+  H.ok(extractFen('some text\n' + INITIAL_FEN + '\nmore text') != null, 'extractFen 跨行也能抽到')
+  H.eq(extractFen('这里没有 FEN'), null, 'extractFen 找不到时返回 null')
+
+  /** 造一个带 getClipboardData + showModal 的 wx；modalConfirm 决定用户点「载入」还是「忽略」 */
+  function makeWxWithClipboard(clipboardData, modalConfirm) {
+    const calls = { getClipboardData: 0, showModal: 0 }
+    return {
+      request() {},
+      setClipboardData(o) { if (o && o.success) o.success() },
+      getAccountInfoSync() { return { miniProgram: { appId: 'wxtest' } } },
+      getClipboardData(o) {
+        calls.getClipboardData++
+        if (o && o.success) o.success({ data: clipboardData })
+      },
+      showModal(o) {
+        calls.showModal++
+        if (o && o.success) o.success({ confirm: !!modalConfirm, cancel: !modalConfirm })
+      },
+      __calls: calls
+    }
+  }
+
+  // 14.1 剪贴板里有合法 FEN 且用户确认 → 载入
+  {
+    const wxClip = makeWxWithClipboard(INITIAL_FEN, true)
+    const p = createPage(wxClip)
+    const before = p.game.getFen()
+    p.onShow()
+    H.eq(p.game.getFen(), INITIAL_FEN, '确认导入后棋局切到剪贴板里的 FEN')
+    H.eq(p._fenEditing, false, '导入后退出编辑态')
+    H.eq(p.data.fenInput, INITIAL_FEN, '输入框同步成导入的 FEN')
+    H.ok(p._analyzeTimer != null, '导入后排队自动分析')
+    H.eq(wxClip.__calls.showModal, 1, '弹了一次确认框')
+    H.ok(before !== INITIAL_FEN, '导入前确实不是该 FEN（否则会被「与当前相同」跳过）')
+  }
+
+  // 14.2 用户点「忽略」→ 不载入
+  {
+    const wxClip = makeWxWithClipboard(INITIAL_FEN, false)
+    const p = createPage(wxClip)
+    const before = p.game.getFen()
+    p.onShow()
+    H.eq(p.game.getFen(), before, '用户拒绝时不改动棋局')
+    H.eq(wxClip.__calls.showModal, 1, '仍然弹了一次确认框')
+  }
+
+  // 14.3 同一剪贴板内容只问一次（取消后再次 onShow 不再弹）
+  {
+    const wxClip = makeWxWithClipboard(INITIAL_FEN, false)
+    const p = createPage(wxClip)
+    p.onShow()
+    p.onShow()
+    H.eq(wxClip.__calls.showModal, 1, '同一内容第二次 onShow 不再弹确认框')
+  }
+
+  // 14.4 剪贴板无 FEN → 不弹、不载入
+  {
+    const wxClip = makeWxWithClipboard('这是一段闲聊文字，没有棋局', true)
+    const p = createPage(wxClip)
+    const before = p.game.getFen()
+    p.onShow()
+    H.eq(p.game.getFen(), before, '剪贴板无 FEN 时不改动棋局')
+    H.eq(wxClip.__calls.showModal, 0, '剪贴板无 FEN 时不弹确认框')
+  }
+
+  // 14.5 剪贴板内容等于当前局面 → 不弹（避免「导入的就是现在这盘」）
+  {
+    const wxPreset = makeWxWithClipboard(START_FEN, true)
+    const p = createPage(wxPreset)
+    p.onShow()
+    H.eq(wxPreset.__calls.showModal, 0, '剪贴板与当前局面一致时不打扰')
+  }
+
+  // 14.6 环境没有 getClipboardData → onShow 不抛错、不载入
+  {
+    const p = createPage(wxFull) // wxFull 不带 getClipboardData
+    const before = p.game.getFen()
+    H.doesNotThrow(() => p.onShow(), '缺 getClipboardData 时 onShow 静默降级不抛错')
+    H.eq(p.game.getFen(), before, '缺 getClipboardData 时不改动棋局')
+  }
+
+  // 14.7 有 getClipboardData 但无 showModal → 检测到 FEN 也不偷偷改局面
+  {
+    const wxNoModal = {
+      request() {},
+      setClipboardData(o) { if (o && o.success) o.success() },
+      getAccountInfoSync() { return { miniProgram: { appId: 'wxtest' } } },
+      getClipboardData(o) { if (o && o.success) o.success({ data: INITIAL_FEN }) }
+    }
+    const p = createPage(wxNoModal)
+    const before = p.game.getFen()
+    p.onShow()
+    H.eq(p.game.getFen(), before, '无弹窗能力时不擅自导入')
+  }
+
+  // 14.8 手动按钮 onPasteClipboard（已显式点击，直接导入不再二次确认）
+  {
+    const wxClip = makeWxWithClipboard(INITIAL_FEN, false) // confirm 无关，手动路径不弹 modal
+    const p = createPage(wxClip)
+    p.onPasteClipboard()
+    H.eq(p.game.getFen(), INITIAL_FEN, '点「从剪贴板载入」直接导入')
+    H.eq(wxClip.__calls.showModal, 0, '手动路径不弹确认框')
+  }
+
+  // 14.9 手动按钮：剪贴板无 FEN → 不改动
+  {
+    const wxClip = makeWxWithClipboard('no fen', false)
+    const p = createPage(wxClip)
+    const before = p.game.getFen()
+    p.onPasteClipboard()
+    H.eq(p.game.getFen(), before, '剪贴板无 FEN 时手动导入也不动棋局')
+  }
 
   return H.summary('analyze-page.test.js')
 }

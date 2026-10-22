@@ -142,6 +142,7 @@
         </view>
         <view class="row fen-actions">
           <view class="chip" bindtap="onUseStartFen">填入预置局面</view>
+          <view class="chip" bindtap="onPasteClipboard">从剪贴板载入</view>
           <view class="gap"></view>
           <text class="muted tiny">{{fenHint}}</text>
         </view>

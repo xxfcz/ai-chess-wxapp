@@ -39,6 +39,47 @@ function normalizeFenFields(fen) {
   return parts.join(' ')
 }
 
+/**
+ * 纯校验：不载入、不改动棋局，判断一段文本是否可解析为合法 FEN。
+ * 直接复用 load() 的规整 + chess.js validate_fen 逻辑（同一套口径，避免两处漂移）。
+ * @returns {boolean}
+ */
+function isValidFen(fen) {
+  if (typeof fen !== 'string' || !fen.trim()) return false
+  const normalized = normalizeFenFields(fen)
+  const probe = new Chess()
+  const check = probe.validate_fen(normalized)
+  return !!(check && check.valid === true)
+}
+
+/**
+ * 从一段（可能混杂无关文字的）文本里抽取第一个合法 FEN。
+ * 优先整行匹配；再退化为在文本中滑动窗口扫描「7 个 / 分隔的棋子布局段 + 后续字段」。
+ * 用于剪贴板自动导入：用户常从网页/对弈平台整段复制，FEN 前后都夹着说明文字。
+ * @returns {string|null} 规整后的合法 FEN；找不到返回 null
+ */
+function extractFen(text) {
+  if (typeof text !== 'string' || !text.trim()) return null
+
+  const lines = text.split(/\r?\n/)
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim()
+    if (line && isValidFen(line)) return normalizeFenFields(line)
+  }
+
+  // 退化：在文本里找「棋子布局段」，再顺带吃掉其后最多 5 个空白字段凑成完整 FEN
+  const placementRe = /[pnbrqkPNBRQK1-8]+\/(?:[pnbrqkPNBRQK1-8]+\/){6}[pnbrqkPNBRQK1-8]+/
+  const m = placementRe.exec(text)
+  if (m) {
+    const tail = text.slice(m.index).split(/\s+/)
+    for (let j = 6; j >= 2; j--) {
+      const candidate = tail.slice(0, j).join(' ')
+      if (isValidFen(candidate)) return normalizeFenFields(candidate)
+    }
+  }
+  return null
+}
+
 class Game {
   constructor(fen) {
     this.selected = null
@@ -379,4 +420,4 @@ class Game {
   }
 }
 
-module.exports = { Game, START_FEN, DEFAULT_PROMOTION }
+module.exports = { Game, START_FEN, DEFAULT_PROMOTION, normalizeFenFields, isValidFen, extractFen }
