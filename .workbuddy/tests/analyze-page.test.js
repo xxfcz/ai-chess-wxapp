@@ -16,14 +16,15 @@ const path = require('path')
 const H = require('./_harness')
 
 const ROOT = path.join(__dirname, '..', '..')
-const ANALYZE_PAGE = path.join(ROOT, 'pages', 'analyze', 'analyze.js')
-const ANALYZE_WXML = path.join(ROOT, 'pages', 'analyze', 'analyze.wxml')
+const ANALYZE_PAGE = path.join(ROOT, 'pkg-analyze', 'analyze', 'analyze.js')
+const ANALYZE_WXML = path.join(ROOT, 'pkg-analyze', 'analyze', 'analyze.wxml')
 const APP_JSON = path.join(ROOT, 'app.json')
 
 const ai = require(path.join(ROOT, 'utils', 'ai-client.js'))
 const coachDemo = require(path.join(ROOT, 'utils', 'coach-demo.js'))
 const debugLog = require(path.join(ROOT, 'utils', 'debug-log.js'))
 const { Game, START_FEN, isValidFen, extractFen } = require(path.join(ROOT, 'utils', 'game.js'))
+const { sessionStore } = require(path.join(ROOT, 'utils', 'session-store.js'))
 
 const INITIAL_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
 const sleep = ms => new Promise(r => setTimeout(r, ms))
@@ -81,7 +82,10 @@ function loadPageModule() {
 }
 
 /** 造一个页面实例：自带 setData 并把 data 深拷贝一份 */
-function createPage(wxStub) {
+function createPage(wxStub, keepStore) {
+  // 默认每次造页前清空全局会话仓库，避免上一页残留的 Game/分析污染本页断言；
+  // 跨分包保留测试（§15）传 keepStore=true 复用同一仓库。
+  if (!keepStore) sessionStore.reset()
   installGlobals(wxStub)
   const opts = loadPageModule()
   const page = Object.assign({}, opts)
@@ -585,19 +589,31 @@ async function main() {
   /* ------------------------------------------- 11. WXML 模板静态守卫 */
   H.section('11. WXML 模板静态守卫（AGENTS.md §6.4）')
 
-  // 平台化重构后，wx:for / wx:key 分散到了页面与 5 个 L1 共享组件里，
-  // 守卫必须扫描所有 wxml（页面 + components/*），否则组件里的违规会漏掉。
-  const COMPONENTS_DIR = path.join(ROOT, 'components')
-  const wxmlFiles = [ANALYZE_WXML]
-  if (fs.existsSync(COMPONENTS_DIR)) {
-    fs.readdirSync(COMPONENTS_DIR).forEach(name => {
-      const f = path.join(COMPONENTS_DIR, name, name + '.wxml')
-      if (fs.existsSync(f)) wxmlFiles.push(f)
+  // 平台化重构后，wx:for / wx:key 分散到了主包页面、5 个 L1 共享组件、以及各分包页面里，
+  // 守卫必须扫描所有 wxml（pages/* + components/* + 各 subpackage root/*），否则会漏掉。
+  function collectWxml(dir, acc) {
+    if (!fs.existsSync(dir)) return acc
+    fs.readdirSync(dir, { withFileTypes: true }).forEach(d => {
+      const full = path.join(dir, d.name)
+      if (d.isDirectory()) collectWxml(full, acc)
+      else if (d.isFile() && d.name.endsWith('.wxml')) acc.push(full)
+    })
+    return acc
+  }
+  const wxmlFiles = []
+  collectWxml(path.join(ROOT, 'pages'), wxmlFiles)
+  collectWxml(path.join(ROOT, 'components'), wxmlFiles)
+  // 各分包根目录也纳入（analyze 已迁入 pkg-analyze）
+  const appJsonForScan = JSON.parse(fs.readFileSync(APP_JSON, 'utf8'))
+  if (Array.isArray(appJsonForScan.subpackages)) {
+    appJsonForScan.subpackages.forEach(sp => {
+      if (sp && sp.root) collectWxml(path.join(ROOT, sp.root), wxmlFiles)
     })
   }
-  H.ok(wxmlFiles.length >= 6, `扫描到 ${wxmlFiles.length} 个 wxml 文件（页面 + 5 个组件）`)
+  const uniqueWxml = Array.from(new Set(wxmlFiles))
+  H.ok(uniqueWxml.length >= 7, `扫描到 ${uniqueWxml.length} 个 wxml 文件（主包页面 + 组件 + 分包）`)
   // 先剔除注释，避免注释里的「<block>」「index」等字面量误伤守卫
-  const wxml = wxmlFiles.map(f => fs.readFileSync(f, 'utf8')).join('\n').replace(/<!--[\s\S]*?-->/g, '')
+  const wxml = uniqueWxml.map(f => fs.readFileSync(f, 'utf8')).join('\n').replace(/<!--[\s\S]*?-->/g, '')
 
   // 把每个标签拆开，逐个检查它「自身」的 opening tag
   const tags = []
@@ -652,8 +668,13 @@ async function main() {
   const appJsonText = fs.readFileSync(APP_JSON, 'utf8')
   const appJson = JSON.parse(appJsonText)
   H.eq(appJson.lazyCodeLoading, 'requiredComponents', 'app.json 保留了 lazyCodeLoading')
-  H.ok(Array.isArray(appJson.pages) && appJson.pages.indexOf('pages/analyze/analyze') !== -1,
-    'pages 列表里包含 analyze 页面')
+  H.ok(Array.isArray(appJson.pages) && appJson.pages.indexOf('pages/landing/landing') !== -1,
+    '主包 pages 包含 Landing 首页')
+  H.ok(Array.isArray(appJson.subpackages) &&
+    appJson.subpackages.some(sp => sp.root === 'pkg-analyze' && sp.pages.indexOf('analyze/analyze') !== -1),
+    'subpackages 包含 pkg-analyze/analyze 分包（analyze 已分包化）')
+  H.ok(!(appJson.pages || []).some(p => p.indexOf('pkg-analyze') === 0),
+    '分包页面不重复列在主包 pages 里')
 
   /* ------------------------------------- 13. 引擎来源：云端成功 / 降级显形 */
   H.section('13. 引擎来源标注（云端成功 / 降级显形）')
@@ -757,7 +778,7 @@ async function main() {
     const wxClip = makeWxWithClipboard(INITIAL_FEN, true)
     const p = createPage(wxClip)
     const before = p.game.getFen()
-    p.onShow()
+    await p.onShow()
     H.eq(p.game.getFen(), INITIAL_FEN, '确认导入后棋局切到剪贴板里的 FEN')
     H.eq(p._fenEditing, false, '导入后退出编辑态')
     H.eq(p.data.fenInput, INITIAL_FEN, '输入框同步成导入的 FEN')
@@ -771,7 +792,7 @@ async function main() {
     const wxClip = makeWxWithClipboard(INITIAL_FEN, false)
     const p = createPage(wxClip)
     const before = p.game.getFen()
-    p.onShow()
+    await p.onShow()
     H.eq(p.game.getFen(), before, '用户拒绝时不改动棋局')
     H.eq(wxClip.__calls.showModal, 1, '仍然弹了一次确认框')
   }
@@ -780,8 +801,8 @@ async function main() {
   {
     const wxClip = makeWxWithClipboard(INITIAL_FEN, false)
     const p = createPage(wxClip)
-    p.onShow()
-    p.onShow()
+    await p.onShow()
+    await p.onShow()
     H.eq(wxClip.__calls.showModal, 1, '同一内容第二次 onShow 不再弹确认框')
   }
 
@@ -790,7 +811,7 @@ async function main() {
     const wxClip = makeWxWithClipboard('这是一段闲聊文字，没有棋局', true)
     const p = createPage(wxClip)
     const before = p.game.getFen()
-    p.onShow()
+    await p.onShow()
     H.eq(p.game.getFen(), before, '剪贴板无 FEN 时不改动棋局')
     H.eq(wxClip.__calls.showModal, 0, '剪贴板无 FEN 时不弹确认框')
   }
@@ -799,7 +820,7 @@ async function main() {
   {
     const wxPreset = makeWxWithClipboard(START_FEN, true)
     const p = createPage(wxPreset)
-    p.onShow()
+    await p.onShow()
     H.eq(wxPreset.__calls.showModal, 0, '剪贴板与当前局面一致时不打扰')
   }
 
@@ -821,7 +842,7 @@ async function main() {
     }
     const p = createPage(wxNoModal)
     const before = p.game.getFen()
-    p.onShow()
+    await p.onShow()
     H.eq(p.game.getFen(), before, '无弹窗能力时不擅自导入')
   }
 
@@ -842,6 +863,41 @@ async function main() {
     p.onPasteClipboard()
     H.eq(p.game.getFen(), before, '剪贴板无 FEN 时手动导入也不动棋局')
   }
+
+  /* ------------------------------------- 15. 全局 store 跨分包保留 session（L2-T3） */
+  H.section('15. 全局 store 跨分包保留（L2-T3）')
+
+  // 全新会话：清空 store，进入 analyze 并分析一个局面
+  sessionStore.reset()
+  const r1 = createPage(wxFull, true) // keepStore：便于跨页复用同一仓库
+  r1.game.load(INITIAL_FEN)
+  r1.syncAll()
+  r1.data.depthIndex = 0
+  await r1.runAnalyze()
+  H.ok(r1.data.analysisLines.length === 3, '分析页跑出三线')
+  H.eq(sessionStore.getMode(), 'analyze', 'store 记录了当前模式')
+  H.ok(sessionStore.getAnalysis() && sessionStore.getAnalysis().fen === INITIAL_FEN,
+    'store 缓存了已分析局面')
+
+  // 模拟「退出 analyze 分包」：onUnload 不清 store
+  r1.onUnload()
+
+  // 再次进入 analyze（store 保留）：不重算即可恢复局面与分析
+  const r2 = createPage(wxFull, true)
+  H.eq(r2.game === r1.game, true, '重入复用同一 Game 实例（store 跨分包生效）')
+  H.eq(r2.game.getFen(), INITIAL_FEN, '重入后棋局保留')
+  H.eq(r2.data.analysisLines.length, 3, '重入后分析结果直接恢复，无需重算')
+  H.eq(r2._lastResult != null, true, '重入后 _lastResult 已恢复')
+  r2.onUnload()
+
+  // 显式带 fen 进入（Landing 剪贴板跳转）：以新局开局，不沿用旧分析
+  sessionStore.reset()
+  const r3 = createPage(wxFull, true)
+  r3.onLoad({ fen: INITIAL_FEN })
+  H.eq(r3.game.getFen(), INITIAL_FEN, '带 fen 进入时加载该局面')
+  H.eq(r3.data.analysisLines.length, 0, '带 fen 进入不沿用旧分析（需重新分析）')
+
+  sessionStore.reset()
 
   return H.summary('analyze-page.test.js')
 }

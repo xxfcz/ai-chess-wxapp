@@ -1,0 +1,7 @@
+<view class="page">
+  <view class="card ph-card">
+    <text class="ph-title">{{title}}</text>
+    <text class="ph-desc muted">{{desc}}</text>
+    <view class="btn" bindtap="onBack">返回首页</view>
+  </view>
+</view>

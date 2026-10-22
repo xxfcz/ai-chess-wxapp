@@ -1,0 +1,187 @@
+<view class="page">
+
+  <!-- 棋盘：固定在上半屏，与 analyze 一致（8×8 view 网格，不依赖 Canvas）。 -->
+  <board-view
+    cells="{{cells}}"
+    boardSize="{{boardSize}}"
+    cellSize="{{cellSize}}"
+    pieceFont="{{pieceFont}}"
+    labelFont="{{labelFont}}"
+    ghost="{{ghost}}"
+    evalPercent="{{evalPercent}}"
+    bind:celltap="onCellTap"
+    bind:celltouchstart="onCellTouchStart"
+    bind:celltouchmove="onBoardTouchMove"
+    bind:celltouchend="onBoardTouchEnd"
+    bind:celltouchcancel="onBoardTouchEnd"
+  />
+
+  <scroll-view scroll-y class="body" scroll-into-view="{{tabAnchor}}">
+    <view id="{{tabAnchor}}" class="anchor"></view>
+
+    <!-- 对弈控制条：执子方切换（重开）、陪练强度、当前轮次提示 -->
+    <view class="card play-bar">
+      <view class="row play-row">
+        <text class="muted tiny">执子方</text>
+        <view class="seg">
+          <view
+            wx:for="{{sideOptions}}"
+            wx:key="key"
+            class="seg-item {{playAs === item.key ? 'seg-active' : ''}}"
+            data-side="{{item.key}}"
+            bindtap="onNewGame"
+          >{{item.label}}</view>
+        </view>
+      </view>
+      <view class="row play-row">
+        <text class="muted tiny">陪练强度</text>
+        <view class="seg">
+          <view
+            wx:for="{{strengthOptions}}"
+            wx:key="key"
+            class="seg-item {{strengthKey === item.key ? 'seg-active' : ''}}"
+            data-level="{{item.key}}"
+            bindtap="onStrengthChange"
+          >{{item.label}}</view>
+        </view>
+      </view>
+      <view wx:if="{{thinkingLabel}}" class="play-status {{engineThinking ? 'thinking' : ''}}">{{thinkingLabel}}</view>
+    </view>
+
+    <!-- 状态条 + 历史控制 -->
+    <session-bar
+      statusLabel="{{statusLabel}}"
+      statusTone="{{statusTone}}"
+      turnClass="{{turnClass}}"
+      flipped="{{flipped}}"
+      evalLabel="{{evalLabel}}"
+      terminalLabel="{{terminalLabel}}"
+      canUndo="{{canUndo}}"
+      canRedo="{{canRedo}}"
+      bind:undo="onUndo"
+      bind:redo="onRedo"
+      bind:reset="onReset"
+      bind:flip="onFlip"
+    />
+
+    <!-- 引擎分析 -->
+    <engine-panel
+      wx:if="{{activeTabKey === 'engine'}}"
+      engineLabel="{{engineLabel}}"
+      engineSource="{{engineSource}}"
+      analyzing="{{analyzing}}"
+      depthOptions="{{depthOptions}}"
+      depthIndex="{{depthIndex}}"
+      analysisLines="{{analysisLines}}"
+      analysisError="{{analysisError}}"
+      engineNotice="{{engineNotice}}"
+      bind:depthchange="onDepthChange"
+      bind:analyze="onAnalyze"
+      bind:linepreview="onPreviewLine"
+    />
+
+    <!-- 云端 AI 教练点评 -->
+    <comment-card
+      wx:if="{{activeTabKey === 'coach'}}"
+      cloudReady="{{cloudReady}}"
+      commenting="{{commenting}}"
+      commentingHint="{{commentingHint}}"
+      coachText="{{coachText}}"
+      coachError="{{coachError}}"
+      cloudHint="{{cloudHint}}"
+      coachModel="{{coachModel}}"
+      coachSegments="{{coachSegments}}"
+      demoLines="{{demoLines}}"
+      demoActive="{{demoActive}}"
+      demoBreadcrumb="{{demoBreadcrumb}}"
+      demoPlaying="{{demoPlaying}}"
+      demoCanBack="{{demoCanBack}}"
+      demoCanForward="{{demoCanForward}}"
+      coachDetail="{{coachDetail}}"
+      debugEnabled="{{debugEnabled}}"
+      bind:coach="onCoach"
+      bind:copy="onCopyCoach"
+      bind:coachlongpress="onCoachLongPress"
+      bind:coachtokentap="onCoachTokenTap"
+      bind:demoenter="onEnterDemo"
+      bind:demostep="onDemoStep"
+      bind:demoplay="onDemoPlay"
+      bind:demoexit="onDemoExit"
+      bind:linelongpress="onLineLongPress"
+    />
+
+    <!-- 走子记录 -->
+    <move-list
+      wx:if="{{activeTabKey === 'moves'}}"
+      moveRows="{{moveRows}}"
+      moveCount="{{moveCount}}"
+    />
+
+    <!-- 调试面板 -->
+    <view wx:if="{{debugEnabled}}" class="card">
+      <view class="row head">
+        <text class="section-title">调试面板</text>
+        <view class="gap"></view>
+        <view class="btn small" bindtap="onToggleDebug">{{debugOpen ? '收起' : '展开'}}</view>
+      </view>
+      <text wx:if="{{analysisMeta}}" class="tech-detail">{{analysisMeta}}</text>
+      <text wx:if="{{!debugOpen}}" class="muted tiny">出错时把这里的内容复制出来，就能看到失败在哪一步（共 {{debugCount}} 条）。</text>
+      <view wx:if="{{debugOpen}}" class="log-actions">
+        <view class="btn small" bindtap="onCopyDebug">复制全部</view>
+        <view class="btn small" bindtap="onClearDebug">清空</view>
+        <view class="btn small" bindtap="onToggleEnableDebug">{{debugEnabled ? '关闭真机调试面板' : '打开真机调试面板'}}</view>
+      </view>
+      <view wx:if="{{debugOpen}}" class="log-box">
+        <view wx:for="{{debugRows}}" wx:key="key" class="log-row">
+          <text class="log-time">{{item.time}}</text>
+          <text class="log-level level-{{item.level}}">{{item.level}}</text>
+          <text class="log-text">{{item.text}}</text>
+        </view>
+        <text wx:if="{{!debugRows.length}}" class="muted tiny">暂无日志。</text>
+      </view>
+    </view>
+
+    <!-- 导入局面（FEN）：高级项折叠，默认收起；用于从指定局面开新对局 -->
+    <view class="card">
+      <view class="row head fen-head" bindtap="onToggleFen">
+        <text class="section-title">导入局面（FEN）</text>
+        <view class="gap"></view>
+        <text class="muted tiny">{{fenCollapsed ? '展开 ▾' : '收起 ▴'}}</text>
+      </view>
+      <view wx:if="{{!fenCollapsed}}">
+        <view class="row fen-row">
+          <input
+            class="fen-input"
+            value="{{fenInput}}"
+            placeholder="粘贴 FEN，例如 rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+            placeholder-class="fen-placeholder"
+            confirm-type="done"
+            bindinput="onFenInput"
+            bindconfirm="onLoadFen"
+          />
+          <view class="btn primary" bindtap="onLoadFen">载入</view>
+        </view>
+        <view class="row fen-actions">
+          <view class="chip" bindtap="onUseStartFen">填入初始局面</view>
+          <view class="chip" bindtap="onPasteClipboard">从剪贴板载入</view>
+          <view class="gap"></view>
+          <text class="muted tiny">{{fenHint}}</text>
+        </view>
+      </view>
+    </view>
+  </scroll-view>
+
+  <!-- Tab 栏 -->
+  <view class="tabs">
+    <view
+      wx:for="{{tabs}}"
+      wx:key="key"
+      class="tab {{activeTabKey === item.key ? 'tab-active' : ''}}"
+      data-tab="{{item.key}}"
+      bindtap="onSwitchTab"
+    >
+      <text class="tab-label">{{item.label}}</text>
+    </view>
+  </view>
+
+</view>

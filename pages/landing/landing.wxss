@@ -1,0 +1,87 @@
+.page {
+  min-height: 100vh;
+  padding: 24rpx 20rpx 40rpx;
+  box-sizing: border-box;
+}
+
+.hero {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 36rpx 28rpx;
+  background: linear-gradient(135deg, #1c2333 0%, #161a24 100%);
+}
+
+.hero-title {
+  font-size: 44rpx;
+  font-weight: 700;
+  letter-spacing: 4rpx;
+  color: #f0b232;
+}
+
+.hero-sub {
+  margin-top: 8rpx;
+  font-size: 24rpx;
+}
+
+/* 卡片网格：两列，模式入口 */
+.grid {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+}
+
+.mode-card {
+  width: 48.5%;
+  margin-top: 20rpx;
+  padding: 28rpx 24rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  position: relative;
+  cursor: pointer;
+}
+
+.mode-card.mode-soon {
+  opacity: 0.72;
+}
+
+.mode-icon {
+  width: 64rpx;
+  height: 64rpx;
+  border-radius: 16rpx;
+  background-color: #2a3242;
+  color: #f0b232;
+  font-size: 34rpx;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 16rpx;
+}
+
+.mode-title {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #e9ecf5;
+}
+
+.mode-desc {
+  margin-top: 6rpx;
+}
+
+.soon-tag {
+  position: absolute;
+  top: 20rpx;
+  right: 20rpx;
+  font-size: 20rpx;
+  color: #8d96ad;
+  border: 2rpx solid #2d3548;
+  border-radius: 8rpx;
+  padding: 2rpx 10rpx;
+}
+
+.setting-row {
+  margin-top: 20rpx;
+  cursor: pointer;
+}

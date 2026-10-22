@@ -6,7 +6,7 @@
 
 微信原生小程序「国际象棋 AI 分析」：
 
-- 用户粘贴 **FEN** → 在 `pages/analyze` 用 **视图棋盘** 对弈/模拟 → 引擎给出 **三条最佳路线（MultiPV=3）** 分析 → 可选 **云端 AI 教练** 用大模型生成中文局面点评。
+- 用户从 **Landing 首页**（`pages/landing`）选「分析棋局」→ 进入 `pkg-analyze/analyze`（分析模式分包）用 **视图棋盘** 对弈/模拟 → 引擎给出 **三条最佳路线（MultiPV=3）** 分析 → 可选 **云端 AI 教练** 用大模型生成中文局面点评。
 - 分析有两条实现：**云端 Stockfish**（`engine: remote`，默认，走自建 `ai-chess-server` 的 `POST /v1`）与
   **端上纯 JS 引擎**（`engine: local`，Alpha-Beta + 静态评估 + 静态搜索，弱但离线可用）。
   远端不可用时**自动回落端上**，界面必须标注实际来源（见 §4.1）。
@@ -25,11 +25,12 @@
 
 ```
 app.js / app.json / app.wxss      小程序入口；app.json 顶层必须保留 lazyCodeLoading
-pages/analyze/                    唯一页面：analyze.{js,wxml,wxss,json}
+pages/landing/                    主包首页：四张模式入口卡片 + 设置入口（纯入口，不含棋盘逻辑）
+pages/placeholder/               主包占位页：对弈/打谱/学习/设置 尚未落地时的过渡页
+pkg-analyze/analyze/              分析模式分包 page：analyze.{js,wxml,wxss,json}
                                   布局：唯一的固定元素是棋盘（view 网格，留在上半屏），
                                   状态/控制按钮与 Tab 内容同属一个 scroll-view 整体划动（Tab 内部不再各自滚动），
-                                  底部 Tab 栏钉住：局面 / 引擎分析（内含深度选择与「PV走法」）/ AI教练点评 /
-                                  走子记录 / 运行日志。FEN 载入在「局面」Tab（最左）内。
+                                  底部 Tab 栏钉住：引擎分析 / AI教练点评 / 走子记录（5→3 Tab，见方案 §9）。
                                   状态条已压成单行、优势只显示数值（不画进度条）。
                                   棋盘尺寸按窗口高度约一半做上限，保证留在上半屏。
 utils/
@@ -48,6 +49,8 @@ utils/
   text-codec.js                   TextDecoder/TextEncoder 兜底（真机缺失时补）
   device.js                       安全取值：窗口宽度 / Toast / 网络能力探测（逐级降级不抛错）
   debug-log.js                    60 条环形缓冲日志，页面「运行日志」卡片可查
+  session-store.js                跨分包全局会话仓库（单例）：持有 Game 实例 + 最近分析，退/进不丢局面（L2-T3）
+  clipboard-import.js             剪贴板自动导入 FEN 共享逻辑（Landing 与分析页共用，L2-T5）
 .workbuddy/tests/                 纯 Node 自检测试 + 实网探针（见 §7）
 docs/                            问题排查与修复记录.md（历史排障笔记）
 ```

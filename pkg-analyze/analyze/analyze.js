@@ -1,5 +1,5 @@
 /**
- * pages/analyze/analyze.js
+ * pkg-analyze/analyze/analyze.js（分析模式分包 page）
  * 分析页：FEN 初始化 → WXML 棋盘 → 拖拽/点选走子 → 终局提示 → 三条路线 AI 分析 → 云端点评。
  *
  * 棋盘不用 Canvas：网页版预览不实现 wx.createSelectorQuery，拿不到 2d 节点。
@@ -11,7 +11,10 @@ const boardModel = require('../../utils/board-model')
 const device = require('../../utils/device')
 const ai = require('../../utils/ai-client')
 const coachDemo = require('../../utils/coach-demo')
+const coachRunner = require('../../utils/coach-runner')
 const debugLog = require('../../utils/debug-log')
+const { sessionStore } = require('../../utils/session-store')
+const clipboardImport = require('../../utils/clipboard-import')
 
 const DEPTH_OPTIONS = [2, 3, 4]
 const DEFAULT_DEPTH_INDEX = 1
@@ -102,13 +105,20 @@ Page({
 
   /* ------------------------------------------------------------ 生命周期 */
 
-  onLoad() {
+  onLoad(options) {
+    options = options || {}
     const metrics = boardModel.boardMetrics(
       device.getWindowWidth(),
       Math.floor(device.getWindowHeight() * 0.5)
     )
 
-    this.game = new Game(START_FEN)
+    // 全局 store：跨分包保留当前棋局与分析（退出 analyze 再进入不丢局面）。
+    // 仅当 store 里是本模式遗留的棋局、且本次没有显式带 fen 进来时复用。
+    const storedGame = sessionStore.getGame()
+    this.game = (storedGame && sessionStore.getMode() === 'analyze' && !options.fen)
+      ? storedGame
+      : new Game(START_FEN)
+    sessionStore.setGame(this.game, 'analyze')
     this.hint = null
     this._drag = null
     this._touchHandledAt = 0
@@ -132,6 +142,16 @@ Page({
     this._demoParsed = null   // 最近一次点评解析出的演示线（退出演示后可凭它重建会话）
     this._realFocus = []      // 真实棋盘上的「位置焦点」高亮（点评里点到的格子/棋子）
 
+    // Landing 经剪贴板导入跳进来时带 fen：以该局面开局，清掉旧分析缓存
+    if (options.fen) {
+      try {
+        this.game.load(options.fen)
+        sessionStore.setAnalysis(null)
+      } catch (e) {
+        // 非法 fen 忽略，按 store / 默认局面继续
+      }
+    }
+
     // 日志缓冲：正常由 app.js 装好，这里兜底一次（重复调用是安全的）
     debugLog.install()
     debugLog.push('info', '[页面] 分析页已加载 · ' + (device.canRequest() ? '可发起网络请求' : '无网络请求能力'))
@@ -142,6 +162,22 @@ Page({
 
     // 预览环境可能只实现了 wx 的一个子集；云端点评依赖 wx.request，先探测再告知
     const cloudReady = device.canRequest()
+
+    // 退/进分包：若 store 里缓存了「同一局面」的分析，直接恢复显示，跳过一次引擎计算
+    const saved = sessionStore.getAnalysis()
+    if (saved && saved.fen === this.game.getFen()) {
+      this._lastResult = saved.result
+      this._analysisFen = saved.fen
+      this.setData({
+        analysisLines: saved.lines,
+        engineSource: saved.engineSource,
+        engineLabel: saved.engineLabel,
+        engineNotice: saved.engineNotice,
+        evalPercent: saved.evalPercent,
+        evalLabel: saved.evalLabel,
+        analysisMeta: saved.analysisMeta
+      })
+    }
 
     this.setData({
       boardSize: metrics.boardSize,
@@ -182,49 +218,24 @@ Page({
    * 直接静默跳过，绝不能因为「读剪贴板」本身报错。
    */
   onShow() {
-    this._checkClipboardForFen()
+    return this._checkClipboardForFen()
   },
 
   /**
    * 探测剪贴板里的合法 FEN。环境没有 getClipboardData 时静默降级（绝不抛错）。
    * 与当前局面相同、或与最近一次已询问的内容相同，都不再打扰用户。
+   * 逻辑下沉到 utils/clipboard-import.js 与 Landing 共用（看板 L2-T5）。
    */
   _checkClipboardForFen() {
     if (this._destroyed) return
     if (this.demoActive()) return
     const host = typeof wx !== 'undefined' ? wx : null
-    if (!host || typeof host.getClipboardData !== 'function') return
-    host.getClipboardData({
-      success: res => {
-        if (this._destroyed) return
-        const raw = (res && typeof res.data === 'string') ? res.data : ''
-        const fen = extractFen(raw)
-        if (!fen) return
-        // 与当前局面一致没必要导入；与最近一次问过的一致不再重复弹窗
-        if (fen === this.game.getFen()) return
-        if (fen === this._lastPromptedFen) return
-        this._lastPromptedFen = fen
-        this._promptImportFen(fen)
-      },
-      fail: () => {
-        // 读不到剪贴板（如拒绝授权）：静默，不影响正常使用
-      }
-    })
-  },
-
-  /** 询问是否导入检测到的 FEN；无 showModal 能力时直接放弃（不打扰、也不偷偷改局面） */
-  _promptImportFen(fen) {
-    const host = typeof wx !== 'undefined' ? wx : null
-    if (!host || typeof host.showModal !== 'function') return
-    const preview = fen.length > 56 ? fen.slice(0, 56) + '…' : fen
-    host.showModal({
-      title: '从剪贴板导入局面',
-      content: '检测到剪贴板里有合法局面：\n' + preview + '\n是否载入并分析？',
-      confirmText: '载入',
-      cancelText: '忽略',
-      success: r => {
-        if (r && r.confirm) this._applyLoadedFen(fen)
-      }
+    return clipboardImport.autoImportFenFromClipboard({
+      host: host,
+      currentFen: this.game.getFen(),
+      alreadyPrompted: fen => fen === this._lastPromptedFen,
+      markPrompted: fen => { this._lastPromptedFen = fen },
+      onApply: fen => this._applyLoadedFen(fen)
     })
   },
 
@@ -553,6 +564,7 @@ Page({
     this._fenEditing = false
     this._lastResult = null
     this._analysisFen = ''
+    sessionStore.setAnalysis(null)
     this.setData({
       hintIndex: -1,
       ghost: null,
@@ -643,6 +655,7 @@ Page({
     this._drag = null
     this._lastResult = null
     this._analysisFen = ''
+    sessionStore.setAnalysis(null)
     this.setData({
       hintIndex: -1,
       ghost: null,
@@ -750,6 +763,18 @@ Page({
 
       this._lastResult = result
       this._analysisFen = fen
+      // 跨分包保留：把分析结论写入全局 store，退出再进入可直接恢复（不重算）
+      sessionStore.setAnalysis({
+        fen: fen,
+        result: result,
+        lines: lines,
+        engineSource: src.source,
+        engineLabel: src.label,
+        engineNotice: src.notice,
+        evalPercent: best ? ai.evalPercent(best.whiteCp) : 50,
+        evalLabel: best ? best.text : '—',
+        analysisMeta: this.buildAnalysisMeta(result, src)
+      })
 
       this.setData({
         analysisLines: lines,
@@ -916,6 +941,7 @@ Page({
     }
     // 取消后立刻可以重来，不受频控限制
     this._lastCoachAt = 0
+    this._finalizeCoach()
     this.setData({ commenting: false, coachText: '', coachError: '', coachDetail: '', coachModel: '' })
     debugLog.push('info', '[点评] 已取消（等待 ' + Math.round((Date.now() - this._coachStartedAt) / 1000) + ' 秒）')
     device.toast('已取消本次点评')
@@ -946,6 +972,41 @@ Page({
     }
     this._lastCoachAt = Date.now()
 
+    this._runCoachCommentWith(fen, this._lastResult, {
+      hint: '正在请求云端模型，通常需要 3~15 秒…',
+      onResult: parsed => {
+        // 解析结果留存：退出演示后再次点击记号/分支，可凭它重建会话
+        this._demoParsed = parsed.lines.length ? { lines: parsed.lines, rootFen: this.game.getFen() } : null
+        this.demo = this._demoParsed
+          ? new coachDemo.DemoSession(parsed.lines, this.game.getFen(), { flipped: this.game.flipped })
+          : null
+        this.setData({
+          coachText: parsed.prose,
+          commenting: false,
+          demoLines: this.demo ? this.demo.lineViews() : [],
+          // 正文一律走富文本片段（走法/格子/棋子都可点），不再有纯文本兜底
+          coachSegments: coachDemo.tokenizeText(parsed.prose, { lines: parsed.lines, colorMode: 'branch' }) || [],
+          demoActive: false,
+          demoBreadcrumb: '',
+          demoPlaying: false,
+          demoCanBack: false,
+          demoCanForward: false
+        })
+        debugLog.push('info', '[点评] 完成 · ' + Math.round((Date.now() - this._coachStartedAt) / 1000) +
+          ' 秒 · ' + (this.data.coachModel || '未知模型'))
+      }
+    })
+  },
+
+  /**
+   * 通用点评执行（手动与自动共用）：准备 controller / 计时器 / 交互态，
+   * 再把真正的生成流程交给 coach-runner（单一实现，看板 L2-T6）。
+   * @param {string} fen 被点评局面
+   * @param {object} result 该局面的引擎分析结果（含 lines / sideToMove）
+   * @param {object} opts { hint, onResult } onResult 收到解析后的 { lines, prose }
+   */
+  _runCoachCommentWith(fen, result, opts) {
+    opts = opts || {}
     const Controller = typeof AbortController === 'function' ? AbortController : null
     const controller = Controller ? new Controller() : null
     this._coachController = controller
@@ -969,97 +1030,55 @@ Page({
       demoPlaying: false,
       demoCanBack: false,
       demoCanForward: false,
-      commentingHint: '正在请求云端模型，通常需要 3~15 秒…'
+      commentingHint: opts.hint || '正在请求云端模型，通常需要 3~15 秒…'
     })
 
     if (this._coachTimer) clearInterval(this._coachTimer)
     this._coachTimer = setInterval(() => this.updateCoachHint(), 1000)
     debugLog.push('info', '[点评] 请求开始 · ' + (this.data.coachModel || '待选模型') + ' · 局面 ' + fen.slice(0, 40))
 
-    // 阶段一 · Candidate Grounding：请求前预取端上候选（复用已有分析，零额外搜索）
-    let toolCtx = { candidates: [], text: '' }
-    try {
-      toolCtx = await ai.buildToolContext(fen, this._lastResult, { topN: 6 })
-    } catch (e) {
-      debugLog.push('warn', '[点评] 候选预取失败，降级为旧格式：' + ((e && e.message) || e))
+    coachRunner.runCoachComment({
+      fen: fen,
+      sideToMove: result ? result.sideToMove : this.game.getTurn(),
+      lines: result ? result.lines : [],
+      result: result,
+      onDelta: value => {
+        if (this._destroyed || this._coachCancelled) return
+        // 流式期间就把 ===DEMO=== 结构化块剔掉，避免原始 JSON 闪现在正文里
+        this.setData({ coachText: coachDemo.stripDemoBlock(value) })
+      },
+      onModel: info => {
+        if (this._destroyed) return
+        const label = (info && info.label) || ''
+        if (label !== this.data.coachModel) this.setData({ coachModel: label })
+        this.updateCoachHint()
+      },
+      onResult: r => {
+        if (this._destroyed || this._coachCancelled) return
+        if (opts.onResult) opts.onResult(r.parsed)
+        this._finalizeCoach()
+      },
+      onError: info => {
+        if (this._destroyed || this._coachCancelled) return
+        debugLog.push('error', '[点评] 失败 · ' + (info.kind || 'unknown') + ' · ' + (info.detail || info.message))
+        try {
+          console.error('[AI 教练点评]', info.kind, info.detail, info)
+        } catch (e) { /* 控制台不可用时忽略 */ }
+        this.setData({ coachError: info.message, coachDetail: info.detail || '', commenting: false })
+        this._finalizeCoach()
+      },
+      onWarn: w => { debugLog.push('warn', '[点评] ' + w) },
+      signal: controller ? controller.signal : undefined
+    })
+  },
+
+  /** 点评流程收尾：清掉计时器与 controller（成功/失败/取消都走这里） */
+  _finalizeCoach() {
+    if (this._coachTimer) {
+      clearInterval(this._coachTimer)
+      this._coachTimer = null
     }
-
-    try {
-      const text = await ai.requestCoachComment({
-        fen: fen,
-        sideToMove: this._lastResult.sideToMove,
-        lines: this._lastResult.lines,
-        candidateText: toolCtx.text,
-        onDelta: value => {
-          if (this._destroyed || this._coachCancelled) return
-          // 流式期间就把 ===DEMO=== 结构化块剔掉，避免原始 JSON 闪现在正文里
-          this.setData({ coachText: coachDemo.stripDemoBlock(value) })
-        },
-        onModel: info => {
-          if (this._destroyed) return
-          const label = (info && info.label) || ''
-          if (label !== this.data.coachModel) this.setData({ coachModel: label })
-          this.updateCoachHint()
-        },
-        signal: controller ? controller.signal : undefined
-      })
-      if (this._destroyed || this._coachCancelled) return
-
-      // 阶段一 · 把模型输出的 cand+extend 落地为端上生成的真实走法（cand 非法则就近纠正/降级）
-      let parseText = text
-      try {
-        const ground = await ai.groundDemoLines(text, toolCtx.candidates, fen)
-        if (ground.warnings && ground.warnings.length) {
-          ground.warnings.forEach(w => debugLog.push('warn', '[点评] ' + w))
-        }
-        parseText = ground.text
-      } catch (e) {
-        debugLog.push('warn', '[点评] 演示线落地失败，降级为旧解析：' + ((e && e.message) || e))
-      }
-
-      const parsed = coachDemo.parseDemo(parseText, this.game.getFen())
-      // 解析结果留存：退出演示后再次点击记号/分支，可凭它重建会话
-      this._demoParsed = parsed.lines.length ? { lines: parsed.lines, rootFen: this.game.getFen() } : null
-      this.demo = this._demoParsed
-        ? new coachDemo.DemoSession(parsed.lines, this.game.getFen(), { flipped: this.game.flipped })
-        : null
-      this.setData({
-        coachText: parsed.prose,
-        commenting: false,
-        demoLines: this.demo ? this.demo.lineViews() : [],
-        // 正文一律走富文本片段（走法/格子/棋子都可点），不再有纯文本兜底
-        coachSegments: coachDemo.tokenizeText(parsed.prose, { lines: parsed.lines, colorMode: 'branch' }) || [],
-        demoActive: false,
-        demoBreadcrumb: '',
-        demoPlaying: false,
-        demoCanBack: false,
-        demoCanForward: false
-      })
-      debugLog.push('info', '[点评] 完成 · ' + Math.round((Date.now() - this._coachStartedAt) / 1000) +
-        ' 秒 · ' + text.length + ' 字 · ' + (this.data.coachModel || '未知模型'))
-    } catch (err) {
-      // 主动取消不算失败，不能把中断报成错误
-      if (this._destroyed || this._coachCancelled) return
-      const info = ai.llmErrorInfo(err)
-      debugLog.push('error', '[点评] 失败 · ' + (info.kind || 'unknown') + ' · ' + (info.detail || info.message))
-      // 原始错误留到控制台，便于在开发者工具里追查
-      try {
-        console.error('[AI 教练点评]', info.kind, info.detail, err)
-      } catch (e) {
-        // 控制台不可用时忽略
-      }
-      this.setData({
-        coachError: info.message,
-        coachDetail: info.detail || '',
-        commenting: false
-      })
-    } finally {
-      if (this._coachTimer) {
-        clearInterval(this._coachTimer)
-        this._coachTimer = null
-      }
-      this._coachController = null
-    }
+    this._coachController = null
   },
 
   /* ---------------------------------------------------------- 走法演示 */

@@ -44,7 +44,12 @@
 - `docs/云服务接入经验总结.md` / `docs/自建引擎服务部署方案.md`。
 
 ## 平台化重构（架构与进度）
-- 三层：L0 纯功能平台层（棋局会话，已完成）/ L1 共享 UI 组件（已完成）/ L2 模式配置层（Landing + 多模式分包，**未开始**，任务分解见 `docs/平台化重构进度看板.md` §2）。
+- 三层：L0 纯功能平台层（棋局会话，已完成）/ L1 共享 UI 组件（已完成）/ L2 模式配置层（Landing + 多模式分包，**进行中：Landing/analyze/对弈已完成，打谱待做**）。
+  - Landing 首页（主包）+ analyze 分包已完成（2026-10-22）：`app.json` 分包骨架、`pages/landing`(四卡片+设置)、`pages/placeholder`(过渡)、`pkg-analyze/analyze`(原 `pages/analyze` 迁入)。
+  - 全局 store `utils/session-store.js`（单例，持有 Game 实例 + 最近分析）：analyze 退/进不丢局面与分析。
+  - 剪贴板自动导入下沉 `utils/clipboard-import.js`：Landing 与分析页共用，确认后跳 analyze 分包带 fen。
+  - **对弈分包已完成（L2-T6，2026-10-22）**：`pkg-play/play`（玩家 vs `sparrer`），复用 L1 组件 + L0 服务，无重复实现。新增 L0：`utils/settings.js`（偏好：autoCoach/playCoachScope/playKeyCp/playAs/sparrerLevel，wx storage 静默降级 + `_setBackend/_reset` 测试钩子）、`utils/coach-runner.js`（点评编排：buildToolContext→requestCoachComment→groundDemoLines→parseDemo→tokenizeText，回调式、AbortSignal 取消静默）。
+  - 打谱分包（L2-T7）待做；练习（P4）仍 deferred（依赖外部题库）。任务分解与 DoD 见 `docs/平台化重构进度看板.md` §2。
 - 导航：Landing 首页（主包单页）+ 各模式分包 page（subPackage）；加模块=加分包 page + Landing 注册卡片。SPA 双视图降为可选。
 - MVP：analyze 页平台化 + 简化界面（5→3 Tab；脚注/运行日志Tab/技术细节移调试；优势文字→评估条；FEN/PGN 导入移 Landing）。
 - Tutor/Sparrer 上升为横切 `coach-service`，被所有模式消费；阶段三 Persistent Tutoring Memory 仍是跨模式画像/错题。
@@ -60,8 +65,17 @@
 
 ## 回归测试门禁
 `.workbuddy/tests/` 零依赖（`_harness.js`）。managed node：`C:/Users/Administrator/.workbuddy/binaries/node/versions/22.22.2-6/node.exe`
-- `analyze-page 201` / `engine-and-game 153` / `cloud-adapter 68` / `agent-tools 48` / `remote-engine 82` / `coach-demo`（独立脚本）。
-- `analyze-page` 开头 `ai.setEngineMode('local')`；等待一律 `waitFor()` 轮询（超时 15s），不写死 `sleep`。
+- 页面层：`analyze-page 237` / `play-page 78`（L2-T6 新增）/ `landing 20` / `session 46`
+- 服务层：`engine-and-game 153` / `cloud-adapter 68` / `remote-engine 82` / `analysis-service 35` / `coach-service 15` / `agent-tools 48` / `comment-model 31` / `engine-config 30` / `coach-demo`（独立脚本）
+- 页面测试开头 `ai.setEngineMode('local')`；等待一律 `waitFor()` 轮询（超时 15s），不写死 `sleep`。引擎回着/收尾分析要等 `myTurn===true`（而非仅 moveCount），否则会读到 `engineThinking` 未复位的中间态。
+- WXML 静态守卫随 `app.json#subpackages` 自动扫描各分包 root（`pkg-play/play.wxml` 已纳入）。
+
+## 对弈模式（pkg-play）设计要点（2026-10-22，L2-T6）
+- 走子护栏 `_canPlayerMove()`：仅玩家自己行棋方（`playAs`）且轮到玩家、且 AI 不在思考/不在演示时才能落子；`pressSquare` 拒绝选中对方棋子（杜绝自由模拟，与 analyze 的自由模拟语义相反）。
+- 引擎回着 `engineMove()`：玩家落子→自动分析→轮到 sparrer 时取最佳走法应着；**任何失败都复位思考态**（本地引擎是冻结基线不会失败，真实环境不进此态）。
+- 点评门控 `maybeAutoCoach()`：`autoCoach=off` 从不自动；`on/remoteOnly` 受 `cloudReady` 约束；`playCoachScope=keySteps` 时关键步 = |Δcp|≥`playKeyCp`(默认80) 或吃子/将军/送将（纯引擎确定性判定，不走 LLM）。
+- 黑方玩家：按规则白先走，故初始 `myTurn=false`，由 sparrer（白）经 `scheduleAnalyze('kickoff')→afterAnalyze→engineMove` 先走。
+- `undo` 连退两步（玩家+sparrer），把行棋权交回玩家。
 
 ## 第二轮澄清决策（2026-10-21，方案 §11）
 - 服务职责：`engine-service` + `analysis-service`（折叠在 `ai-client.js` 的 `formatScore/buildLineView/evalPercent`）+ `coach-service`。重构即把 analysis/coach **物理拆离** `ai-client.js`。

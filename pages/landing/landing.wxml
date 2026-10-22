@@ -1,0 +1,36 @@
+<view class="page">
+
+  <!-- 头部：应用名 + 一句话定位（不含棋盘逻辑，纯入口） -->
+  <view class="card hero">
+    <text class="hero-title">黑白格大师</text>
+    <text class="hero-sub muted">国际象棋 AI 分析与教练</text>
+  </view>
+
+  <text class="section-title">选择模式</text>
+  <view class="grid">
+    <!-- 卡片点击 → navigateTo 对应分包 / 占位页。wx:key 用字符串字段 key；属性里不引用循环变量 index（WXML 静态守卫）。 -->
+    <view
+      wx:for="{{cards}}"
+      wx:key="key"
+      class="card mode-card {{item.ready ? '' : 'mode-soon'}}"
+      data-url="{{item.url}}"
+      data-mode="{{item.mode}}"
+      bindtap="onCardTap"
+    >
+      <text class="mode-icon">{{item.icon}}</text>
+      <text class="mode-title">{{item.title}}</text>
+      <text class="mode-desc muted tiny">{{item.desc}}</text>
+      <text wx:if="{{!item.ready}}" class="soon-tag">即将上线</text>
+    </view>
+  </view>
+
+  <text class="section-title">其他</text>
+  <view class="card setting-row" bindtap="onSettingsTap">
+    <view class="row">
+      <text class="mode-title">设置</text>
+      <view class="gap"></view>
+      <text class="muted tiny">引擎 / 自动点评 / 模型 偏好</text>
+    </view>
+  </view>
+
+</view>
