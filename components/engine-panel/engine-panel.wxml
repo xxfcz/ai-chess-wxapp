@@ -1,0 +1,42 @@
+<view class="card">
+  <view class="row head">
+    <text class="section-title">引擎分析 · 三条最佳路线</text>
+    <view class="gap"></view>
+    <text wx:if="{{engineLabel}}" class="chip {{engineSource === 'remote' ? 'chip-ok' : 'chip-warn'}}">{{engineLabel}}</text>
+  </view>
+
+  <view class="row analyze-bar">
+    <picker range="{{depthOptions}}" value="{{depthIndex}}" bindchange="onDepthChange">
+      <view class="chip">深度 {{depthOptions[depthIndex]}}</view>
+    </picker>
+    <view class="gap"></view>
+    <view class="btn primary {{analyzing ? 'disabled' : ''}}" bindtap="onAnalyze">{{analyzing ? '分析中' : 'PV走法'}}</view>
+  </view>
+
+  <view wx:if="{{analysisLines.length}}" class="lines">
+    <view
+      wx:for="{{analysisLines}}"
+      wx:key="key"
+      class="line {{item.active ? 'line-active' : ''}}"
+      data-index="{{item.idx}}"
+      bindtap="onPreviewLine"
+    >
+      <view class="line-rank rank-{{item.rank}}">{{item.rank}}</view>
+      <view class="line-body">
+        <view class="row">
+          <text class="line-san">{{item.san}}</text>
+          <view class="gap"></view>
+          <text class="line-score tone-{{item.tone}}">{{item.scoreText}}</text>
+        </view>
+        <text class="line-pv">{{item.pvText}}</text>
+      </view>
+    </view>
+    <text class="muted tiny">点击任一路线，可在棋盘上预览该走法。</text>
+  </view>
+  <view wx:elif="{{analysisError}}" class="error">{{analysisError}}</view>
+  <view wx:else class="muted tiny">走子后会自动分析，也可以点上方「PV走法」立即计算。</view>
+
+  <view wx:if="{{engineNotice}}" class="engine-notice">
+    <text class="tiny">{{engineNotice}}</text>
+  </view>
+</view>

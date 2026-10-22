@@ -1,0 +1,96 @@
+/* engine-panel：引擎分析面板样式（L1 共享组件，自带样式、不依赖页面） */
+
+/* 分析触发行：深度选择 + PV走法（位于「引擎分析」Tab 内） */
+.analyze-bar {
+  margin: 4rpx 0 20rpx;
+  align-items: center;
+}
+
+.lines {
+  margin-top: 8rpx;
+}
+
+.line {
+  display: flex;
+  align-items: center;
+  padding: 18rpx 16rpx;
+  border-radius: 14rpx;
+  background-color: #141922;
+  border: 2rpx solid transparent;
+  margin-bottom: 12rpx;
+  cursor: pointer;
+}
+
+.line-active {
+  border-color: rgba(86, 170, 255, 0.65);
+  background-color: rgba(86, 170, 255, 0.1);
+}
+
+.line-rank {
+  width: 44rpx;
+  height: 44rpx;
+  border-radius: 50%;
+  margin-right: 18rpx;
+  font-size: 24rpx;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #10131a;
+  background-color: #8d96ad;
+  flex-shrink: 0;
+}
+
+.rank-1 {
+  background-color: #f0b232;
+}
+
+.rank-2 {
+  background-color: #b9c3d6;
+}
+
+.rank-3 {
+  background-color: #a9805a;
+}
+
+.line-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.line-san {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #e9ecf5;
+  font-family: Menlo, Consolas, monospace;
+}
+
+.line-score {
+  font-size: 28rpx;
+  font-family: Menlo, Consolas, monospace;
+  font-weight: 600;
+}
+
+.line-pv {
+  display: block;
+  margin-top: 8rpx;
+  font-size: 23rpx;
+  color: #8d96ad;
+  font-family: Menlo, Consolas, monospace;
+  word-break: break-all;
+}
+
+.meta {
+  margin-top: 4rpx;
+}
+
+/* 降级提示：常驻在元信息下方，说明当前缺哪个能力、评分会差多少 */
+.engine-notice {
+  margin-top: 10rpx;
+  padding: 12rpx 16rpx;
+  border-radius: 12rpx;
+  border: 2rpx solid #6b542f;
+  background-color: #2a2418;
+  color: #e8a34f;
+  line-height: 1.6;
+}

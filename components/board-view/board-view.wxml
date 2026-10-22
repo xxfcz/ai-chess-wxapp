@@ -1,0 +1,51 @@
+<!--
+  components/board-view/board-view.wxml
+  棋盘 = 评估条 + 8×8 视图网格 + 拖拽浮层。
+  不用 Canvas（预览环境不实现 wx.createSelectorQuery），棋子用格内文字字形。
+  拖拽落点由页面用「位移 ÷ 格宽」反推，组件只把坐标透传出去。
+  WXML 静态守卫：wx:for 自身属性不引用循环变量 index；wx:key 用字符串字段；不写 block 标签。
+-->
+<view class="board-wrap">
+  <view class="eval-bar">
+    <view class="eval-fill" style="height:{{evalPercent}}%"></view>
+  </view>
+  <view
+    class="grid"
+    style="width:{{boardSize}}px;height:{{boardSize}}px;"
+    catchtouchmove="moveCell"
+    bindtouchend="endCell"
+    bindtouchcancel="endCell"
+  >
+    <view
+      wx:for="{{cells}}"
+      wx:key="sq"
+      class="cell {{item.cls}}"
+      style="width:{{cellSize}}px;height:{{cellSize}}px;"
+      data-sq="{{item.sq}}"
+      bindtouchstart="startCell"
+      bindtap="tapCell"
+    >
+      <text wx:if="{{item.ct}}" class="cell-label cell-label-tl" style="font-size:{{labelFont}}px;">{{item.ct}}</text>
+      <text wx:if="{{item.cb}}" class="cell-label cell-label-br" style="font-size:{{labelFont}}px;">{{item.cb}}</text>
+      <view wx:if="{{item.mark === 'dot'}}" class="mark-dot"></view>
+      <view wx:elif="{{item.mark === 'ring'}}" class="mark-ring"></view>
+      <text
+        wx:if="{{item.glyph}}"
+        class="piece piece-{{item.color}}"
+        style="font-size:{{pieceFont}}px;"
+      >{{item.glyph}}</text>
+    </view>
+
+    <!-- 拖拽浮层 -->
+    <view
+      wx:if="{{ghost}}"
+      class="ghost"
+      style="width:{{ghost.size}}px;height:{{ghost.size}}px;left:{{ghost.left}}px;top:{{ghost.top}}px;"
+    >
+      <text
+        class="piece ghost-piece piece-{{ghost.color}}"
+        style="font-size:{{ghost.font}}px;"
+      >{{ghost.glyph}}</text>
+    </view>
+  </view>
+</view>

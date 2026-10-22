@@ -1,0 +1,27 @@
+/* move-list：走子记录样式（L1 共享组件，自带样式、不依赖页面） */
+
+.moves {
+  /* 列表随 Tab 内容一起滚动，不在内部再套一层滚动 */
+  margin-top: 8rpx;
+}
+
+.move-row {
+  display: flex;
+  align-items: center;
+  padding: 10rpx 8rpx;
+  border-bottom: 2rpx solid #232a3a;
+}
+
+.move-no {
+  width: 72rpx;
+  color: #8d96ad;
+  font-size: 24rpx;
+  font-family: Menlo, Consolas, monospace;
+}
+
+.move-san {
+  flex: 1;
+  font-size: 27rpx;
+  font-family: Menlo, Consolas, monospace;
+  color: #e9ecf5;
+}

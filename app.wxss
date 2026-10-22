@@ -87,3 +87,98 @@ button {
 .btn.disabled {
   opacity: 0.4;
 }
+
+/* ------------------------------------------------------------
+   以下为「平台级共享原子类」，被所有 L1 共享 UI 组件复用（app.wxss 全局生效）。
+   从 analyze.wxss 迁出，确保 BoardView / SessionBar / EnginePanel / CommentCard /
+   MoveList 等组件不依赖某个具体页面的样式（平台化重构 · L1）。
+*/
+
+.btn.small {
+  height: 58rpx;
+  padding: 0 20rpx;
+  font-size: 24rpx;
+  border-radius: 12rpx;
+}
+
+/* 可点击元素的指针光标，提示可交互 */
+.btn,
+.chip {
+  cursor: pointer;
+}
+
+.tiny {
+  font-size: 22rpx;
+}
+
+/* 卡片小标题行：标题 + 右侧操作/徽标 */
+.head {
+  align-items: center;
+  margin-bottom: 12rpx;
+}
+
+.head .section-title {
+  margin-bottom: 0;
+}
+
+.head picker {
+  margin-right: 14rpx;
+}
+
+.head .btn.small {
+  margin-left: 14rpx;
+}
+
+/* 引擎来源徽标：云端可用为绿，已降级到本地为琥珀 */
+.chip-ok {
+  color: #35c26b;
+  border-color: #2f6b45;
+}
+
+.chip-warn {
+  color: #e8a34f;
+  border-color: #6b542f;
+}
+
+/* 失败原因的排查线索：小字、等宽、不抢眼 */
+.error {
+  display: block;
+  margin-top: 12rpx;
+  color: #e8664f;
+  font-size: 24rpx;
+}
+
+.tech-detail {
+  display: block;
+  margin-top: 8rpx;
+  font-size: 20rpx;
+  line-height: 1.5;
+  color: #5c6577;
+  font-family: Menlo, Consolas, monospace;
+  word-break: break-all;
+}
+
+/* 分数 / 状态配色：白方视角为正（被状态条与引擎面板共用） */
+.tone-white {
+  color: #35c26b;
+}
+
+.tone-black {
+  color: #e8664f;
+}
+
+.tone-even {
+  color: #c3cadb;
+}
+
+.tone-mate {
+  color: #f0b232;
+}
+
+.tone-check {
+  color: #e8664f;
+}
+
+.tone-over {
+  color: #f0b232;
+}

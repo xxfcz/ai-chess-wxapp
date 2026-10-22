@@ -585,7 +585,19 @@ async function main() {
   /* ------------------------------------------- 11. WXML 模板静态守卫 */
   H.section('11. WXML 模板静态守卫（AGENTS.md §6.4）')
 
-  const wxml = fs.readFileSync(ANALYZE_WXML, 'utf8')
+  // 平台化重构后，wx:for / wx:key 分散到了页面与 5 个 L1 共享组件里，
+  // 守卫必须扫描所有 wxml（页面 + components/*），否则组件里的违规会漏掉。
+  const COMPONENTS_DIR = path.join(ROOT, 'components')
+  const wxmlFiles = [ANALYZE_WXML]
+  if (fs.existsSync(COMPONENTS_DIR)) {
+    fs.readdirSync(COMPONENTS_DIR).forEach(name => {
+      const f = path.join(COMPONENTS_DIR, name, name + '.wxml')
+      if (fs.existsSync(f)) wxmlFiles.push(f)
+    })
+  }
+  H.ok(wxmlFiles.length >= 6, `扫描到 ${wxmlFiles.length} 个 wxml 文件（页面 + 5 个组件）`)
+  // 先剔除注释，避免注释里的「<block>」「index」等字面量误伤守卫
+  const wxml = wxmlFiles.map(f => fs.readFileSync(f, 'utf8')).join('\n').replace(/<!--[\s\S]*?-->/g, '')
 
   // 把每个标签拆开，逐个检查它「自身」的 opening tag
   const tags = []

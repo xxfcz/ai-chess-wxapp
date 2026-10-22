@@ -1,0 +1,151 @@
+/* components/board-view/board-view.wxss
+   棋盘专属样式（从 analyze.wxss 迁出，组件自带、不依赖页面）。
+   共享原子类（.card/.row/.btn/.chip/.muted/.section-title/.tiny/.head/.error/.tech-detail 等）
+   已在 app.wxss 全局提供，组件自动继承。 */
+
+.board-wrap {
+  position: relative;
+  display: flex;
+  margin: 24rpx auto 0;
+  border-radius: 16rpx;
+  overflow: hidden;
+  border: 2rpx solid #2d3548;
+  box-shadow: 0 12rpx 32rpx rgba(0, 0, 0, 0.35);
+  background-color: #1a1f2b;
+}
+
+/* 评估条：竖向直观表达优劣，替代纯文字「白方优势 +x」（方案 §9.2）。
+   底部为白方、顶部为黑方；白优时浅色填充从底部升高。 */
+.eval-bar {
+  width: 16rpx;
+  flex-shrink: 0;
+  background-color: #20283a;
+  position: relative;
+}
+
+.eval-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #f0f0f0;
+  transition: height 0.25s ease;
+}
+
+.grid {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  flex-shrink: 0;
+}
+
+.cell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.cell.light {
+  background-color: #ebecd0;
+}
+
+.cell.dark {
+  background-color: #739552;
+}
+
+/* 高亮用超大内阴影叠色，不覆盖格子本身的底色，可与其他标记共存 */
+.cell.last {
+  box-shadow: inset 0 0 0 999px rgba(255, 213, 79, 0.42);
+}
+
+.cell.hint {
+  box-shadow: inset 0 0 0 999px rgba(86, 170, 255, 0.45);
+}
+
+.cell.sel {
+  box-shadow: inset 0 0 0 999px rgba(255, 213, 79, 0.62);
+}
+
+.cell.check {
+  box-shadow: inset 0 0 0 999px rgba(226, 74, 61, 0.5);
+}
+
+/* 「位置焦点」：点评里点到的格子/棋子。紫色与 last(琥珀)/hint(蓝)/check(红) 明显区分 */
+.cell.focus {
+  box-shadow: inset 0 0 0 999px rgba(176, 92, 255, 0.55), inset 0 0 0 6rpx rgba(216, 160, 255, 0.9);
+}
+
+.cell-label {
+  position: absolute;
+  line-height: 1;
+  opacity: 0.68;
+  font-weight: 600;
+}
+
+.cell-label-tl {
+  left: 3px;
+  top: 3px;
+}
+
+.cell-label-br {
+  right: 3px;
+  bottom: 3px;
+}
+
+.cell.light .cell-label {
+  color: #6f8b4e;
+}
+
+.cell.dark .cell-label {
+  color: #e8ecd2;
+}
+
+.piece {
+  line-height: 1;
+  font-family: Georgia, "Times New Roman", serif;
+}
+
+.piece-w {
+  color: #ffffff;
+  text-shadow: 0 0 1px #1b1f27, 1px 0 0 #1b1f27, -1px 0 0 #1b1f27, 0 1px 0 #1b1f27, 0 -1px 0 #1b1f27;
+}
+
+.piece-b {
+  color: #23262f;
+  text-shadow: 0 0 1px rgba(255, 255, 255, 0.6);
+}
+
+.mark-dot {
+  position: absolute;
+  width: 30%;
+  height: 30%;
+  border-radius: 50%;
+  background-color: rgba(21, 26, 36, 0.3);
+}
+
+.mark-ring {
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: 50%;
+  border: 4rpx solid rgba(21, 26, 36, 0.4);
+  box-sizing: border-box;
+}
+
+.ghost {
+  position: absolute;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.ghost-piece {
+  text-shadow: 0 6rpx 16rpx rgba(0, 0, 0, 0.5);
+}

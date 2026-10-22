@@ -1,0 +1,22 @@
+<!--
+  components/session-bar/session-bar.wxml
+  单行状态条（轮走方点 + 状态文字 + 评估数值 + 终局横幅）+ 历史控制按钮。
+  控制按钮只触发语义事件，具体执行由页面持有 game 完成。
+-->
+<view class="card status-card">
+  <view class="row status-line">
+    <view class="turn-dot {{turnClass}}"></view>
+    <text class="status-text tone-{{statusTone}}">{{statusLabel}}</text>
+    <text class="muted tiny">{{flipped ? '黑方视角' : '白方视角'}}</text>
+    <view class="gap"></view>
+    <text class="eval-value">{{evalLabel}}</text>
+    <text class="muted tiny">评估</text>
+  </view>
+  <view wx:if="{{terminalLabel}}" class="banner">{{terminalLabel}}</view>
+  <view class="row controls">
+    <view class="btn {{canUndo ? '' : 'disabled'}}" data-act="undo" bindtap="onTap">后退</view>
+    <view class="btn {{canRedo ? '' : 'disabled'}}" data-act="redo" bindtap="onTap">前进</view>
+    <view class="btn" data-act="reset" bindtap="onTap">重置</view>
+    <view class="btn" data-act="flip" bindtap="onTap">翻转</view>
+  </view>
+</view>

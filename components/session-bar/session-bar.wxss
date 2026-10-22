@@ -1,0 +1,64 @@
+/* components/session-bar/session-bar.wxss
+   状态条 + 控制按钮专属样式（从 analyze.wxss 迁出）。
+   共享原子类（.card/.row/.gap/.btn/.muted/.tiny/.banner/.status-text 等）已在 app.wxss 全局提供。 */
+
+.status-card {
+  margin-top: 24rpx;
+}
+
+.status-line {
+  align-items: center;
+}
+
+.turn-dot {
+  width: 18rpx;
+  height: 18rpx;
+  border-radius: 50%;
+  margin-right: 12rpx;
+  border: 3rpx solid #0f1118;
+  flex-shrink: 0;
+}
+
+.turn-dot.w {
+  background-color: #f2f4f8;
+}
+
+.turn-dot.b {
+  background-color: #4a5266;
+}
+
+.status-text {
+  font-size: 28rpx;
+  font-weight: 600;
+}
+
+.eval-value {
+  font-family: Menlo, Consolas, monospace;
+  font-size: 26rpx;
+  color: #e9ecf5;
+}
+
+.banner {
+  margin-top: 20rpx;
+  padding: 16rpx 20rpx;
+  border-radius: 14rpx;
+  background-color: rgba(240, 178, 50, 0.14);
+  border: 2rpx solid rgba(240, 178, 50, 0.4);
+  color: #f0b232;
+  font-size: 26rpx;
+  text-align: center;
+}
+
+.controls {
+  margin-top: 24rpx;
+  gap: 16rpx;
+}
+
+.controls .btn {
+  flex: 1;
+  margin-right: 16rpx;
+}
+
+.controls .btn:last-child {
+  margin-right: 0;
+}

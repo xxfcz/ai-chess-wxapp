@@ -33,6 +33,8 @@ Page({
     ghost: null,
     fenInput: START_FEN,
     fenHint: FEN_HINT,
+    /** FEN/PGN 导入框默认折叠（§9：高级项收起，不占 Tab） */
+    fenCollapsed: true,
     statusLabel: '白方行棋',
     statusTone: 'even',
     turnClass: 'w',
@@ -85,14 +87,13 @@ Page({
     /**
      * 布局：棋盘固定在屏幕上方（唯一不滚动的元素），
      * 状态/控制按钮与 Tab 内容同属一个滚动区，Tab 栏钉在底部。
-     * Tab：引擎分析（含深度选择与「PV走法」）/ AI教练点评 / 走子记录 / 运行日志 / 局面。
+     * Tab 简化为 3 个（引擎分析 / AI点评 / 走子记录）；运行日志与引擎元信息移入调试面板，
+     * FEN 导入作为折叠的高级项（不再占一个 Tab）。见 docs/平台化产品重构方案.md §9。
      */
     tabs: [
-      { key: 'fen', label: '局面' },
       { key: 'engine', label: '引擎分析' },
-      { key: 'coach', label: 'AI教练点评' },
-      { key: 'moves', label: '走子记录' },
-      { key: 'log', label: '运行日志' }
+      { key: 'coach', label: 'AI点评' },
+      { key: 'moves', label: '走子记录' }
     ],
     activeTabKey: 'engine',
     /** 滚动区回到顶部用的锚点 id，切换 Tab 时换成新值即可滚回顶部 */
@@ -337,9 +338,14 @@ Page({
     if (this.demoActive()) return
     this._realFocus = []
     this._touchHandledAt = Date.now()
-    const square = e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.sq : ''
+    // board-view 透传 { sq, x, y }；保留对旧事件形的兼容以便回归测试直接调用
+    const detail = e.detail || {}
+    const square = detail.sq != null ? detail.sq
+      : (e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.sq : '')
     if (!square) return
-    const touch = e.touches && e.touches[0] ? e.touches[0] : null
+    const touch = detail.x != null
+      ? { clientX: detail.x, clientY: detail.y }
+      : (e.touches && e.touches[0] ? e.touches[0] : null)
     this.pressSquare(square, touch)
   },
 
@@ -348,7 +354,11 @@ Page({
     this._realFocus = []
     const drag = this._drag
     if (!drag) return
-    const touch = e.touches && e.touches[0] ? e.touches[0] : null
+    // board-view 透传 { x, y }；兼容直接传入的触摸事件
+    const detail = e.detail || {}
+    const touch = detail.x != null
+      ? { clientX: detail.x, clientY: detail.y }
+      : (e.touches && e.touches[0] ? e.touches[0] : null)
     if (!touch || typeof touch.clientX !== 'number') return
 
     const dx = touch.clientX - drag.startX
@@ -388,7 +398,11 @@ Page({
       return
     }
 
-    const touch = e.changedTouches && e.changedTouches[0] ? e.changedTouches[0] : null
+    // board-view 透传 { x, y }；兼容直接传入的 changedTouches
+    const detail = e.detail || {}
+    const touch = detail.x != null
+      ? { clientX: detail.x, clientY: detail.y }
+      : (e.changedTouches && e.changedTouches[0] ? e.changedTouches[0] : null)
     let target = null
     if (touch && typeof touch.clientX === 'number') {
       const size = this.data.cellSize || 1
@@ -415,7 +429,11 @@ Page({
     this._realFocus = []
     if (Date.now() - this._touchHandledAt < TAP_SUPPRESS_MS) return
     if (!this.game) return
-    const square = e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.sq : ''
+    // board-view 透传 { sq }；兼容直接传入的 dataset（回归测试）
+    const detail = e.detail || {}
+    const square = detail.sq != null
+      ? detail.sq
+      : (e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.sq : '')
     if (!square) return
     this.pressSquare(square, null)
   },
@@ -497,6 +515,11 @@ Page({
     const key = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.tab : ''
     if (!key || key === this.data.activeTabKey) return
     this.setData({ activeTabKey: key, tabAnchor: 'tab-top-' + key })
+  },
+
+  /** 折叠/展开 FEN/PGN 导入框（§9：高级项默认收起） */
+  onToggleFen() {
+    this.setData({ fenCollapsed: !this.data.fenCollapsed })
   },
 
   /* --------------------------------------------------------------- FEN */
@@ -698,8 +721,10 @@ Page({
 
   /** 点击路线 → 在棋盘上预览该走法 */
   onPreviewLine(e) {
-    const data = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset : null
-    const index = Number(data && data.index)
+    // engine-panel 透传 { index }；保留对旧事件形的兼容（回归测试直接调用页面方法）
+    const index = (e && e.detail && e.detail.index != null)
+      ? e.detail.index
+      : (e && e.currentTarget && e.currentTarget.dataset ? Number(e.currentTarget.dataset.index) : NaN)
     const line = this.data.analysisLines[index]
     if (!line) return
     if (this.data.hintIndex === index) {
@@ -959,7 +984,10 @@ Page({
 
   /** 点击分支标签：进入该线，从被点评局面起逐步重放 */
   onEnterDemo(e) {
-    const lineId = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.line : ''
+    // comment-card 透传 { line }；保留对旧事件形的兼容
+    const lineId = (e && e.detail && e.detail.line != null)
+      ? e.detail.line
+      : (e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.line : '')
     if (!lineId || !this._ensureDemo()) return
     this.demo.enter(lineId)
     this.setData(this.demo.view())
@@ -968,7 +996,10 @@ Page({
   /** 演示内上一步 / 下一步 */
   onDemoStep(e) {
     if (!this.demo) return
-    const dir = Number((e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.dir : 0))
+    // comment-card 透传 { dir }；保留对旧事件形的兼容
+    const dir = Number((e && e.detail && e.detail.dir != null)
+      ? e.detail.dir
+      : (e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.dir : 0))
     this.demo.step(dir > 0 ? 1 : -1)
     this.setData(this.demo.view())
   },
@@ -1007,7 +1038,9 @@ Page({
    * 没有语境线（无演示线或正文前文没有分支）时，直接在真实棋盘上高亮。
    */
   onCoachTokenTap(e) {
-    const d = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset : {}
+    // comment-card 透传 dataset（line/ply/sq/piece）；保留对旧事件形的兼容
+    const d = (e && e.detail) ? e.detail
+      : (e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset : {})
     if (d.sq || d.piece) return this._focusToken(d)
     if (!d.line || !this._ensureDemo()) return
     this.demo.enterAt(d.line, Number(d.ply) || 0)
@@ -1108,7 +1141,9 @@ Page({
 
   /** 长按某条分支走法：围绕该分支弹出复制菜单 */
   onLineLongPress(e) {
-    const d = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset : {}
+    // comment-card 透传 { line }；保留对旧事件形的兼容
+    const d = (e && e.detail) ? e.detail
+      : (e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset : {})
     this._openCopyMenu(d.line || '')
   }
 })

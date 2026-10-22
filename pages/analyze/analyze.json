@@ -1,4 +1,10 @@
 {
-  "usingComponents": {},
+  "usingComponents": {
+    "board-view": "/components/board-view/board-view",
+    "session-bar": "/components/session-bar/session-bar",
+    "engine-panel": "/components/engine-panel/engine-panel",
+    "comment-card": "/components/comment-card/comment-card",
+    "move-list": "/components/move-list/move-list"
+  },
   "navigationBarTitleText": "黑白格大师"
 }
