@@ -21,6 +21,8 @@ const { sessionStore } = require(path.join(ROOT, 'utils', 'session-store.js'))
 
 const PREVIEW_ERR = { errMsg: 'navigationTo: fail 未找到页面' }
 
+const sleep = ms => new Promise(r => setTimeout(r, ms))
+
 /** 预览式桩：带 query 的 url 一律「未找到页面」，不带 query 的才成功（同步回调，最坏情况） */
 function makePreviewWx() {
   const urls = []
@@ -170,6 +172,62 @@ async function main() {
   navigation.navigate('/pages/play/play?mode=play', { host: silent, onFail: info => { silentFail = info } })
   H.eq(silentUrls.length, 1, '只发了一次请求，没有连发 4 次')
   H.eq(silentFail, null, '超时前不上报（交给 ' + navigation.NO_CALLBACK_MS + 'ms 看门狗）')
+
+  /* -------- 7.1 宿主跳成功却不回调：用「页面已切走」取证，不许把成功报成失败 -------- */
+  H.section('7.1 静默跳转 + 页面已切走 → 判成功')
+
+  const silent2 = []
+  let hiddenOk = null
+  let hiddenFail = null
+  navigation.navigate('/pages/play/play?mode=play', {
+    host: { navigateTo(o) { silent2.push(o.url) } },
+    isPageHidden: () => true,
+    noCallbackMs: 30,
+    onSuccess: info => { hiddenOk = info },
+    onFail: info => { hiddenFail = info }
+  })
+  await sleep(120)
+  H.eq(hiddenFail, null, '页面确实切走时不再报「点击后没有响应」')
+  H.ok(!!hiddenOk, '按成功上报（预览面板里的假错误就是这条漏判导致的）')
+  H.eq(hiddenOk && hiddenOk.via, 'page-hidden', '通过 via=page-hidden 标明「宿主未回调、靠页面栈取证」')
+  H.eq(silent2.length, 1, '全程只发一次请求，不盲试其余 url 形式')
+
+  /* -------- 7.2 拿不到「已切走」证据：仍要显形（不静默吞掉真故障） -------- */
+  H.section('7.2 静默且仍在本页 → 显形 no-callback')
+
+  let deadSilentFail = null
+  navigation.navigate('/pages/play/play?mode=play', {
+    host: { navigateTo() {} },
+    isPageHidden: () => false,
+    noCallbackMs: 30,
+    onFail: info => { deadSilentFail = info }
+  })
+  await sleep(120)
+  H.eq(deadSilentFail && deadSilentFail.reason, 'no-callback', '确实没反应时仍上报（界面才有反馈）')
+  H.ok(String(deadSilentFail && deadSilentFail.errMsg).indexOf('pages/play/play') !== -1, '文案里带尝试的 url')
+
+  /* -------- 7.3 宿主只返回 Promise（不认回调）：一并接住 -------- */
+  H.section('7.3 只返回 Promise 的宿主也能判成功')
+
+  let promiseOk = null
+  navigation.navigate('/pages/analyze/analyze', {
+    host: { navigateTo() { return Promise.resolve({ errMsg: 'navigateTo:ok' }) } },
+    noCallbackMs: 200,
+    onSuccess: info => { promiseOk = info }
+  })
+  await sleep(30)
+  H.eq(promiseOk && promiseOk.url, '/pages/analyze/analyze', 'Promise resolve 视为成功（不等看门狗）')
+
+  /* -------- 7.4 topRoute：取证用的页面栈顶 route -------- */
+  H.section('7.4 topRoute（页面栈顶取证）')
+
+  H.eq(navigation.topRoute({ getCurrentPages: () => [{ route: 'pages/play/play' }] }),
+    'pages/play/play', '读宿主的 getCurrentPages')
+  H.eq(navigation.topRoute({ getCurrentPages: () => [{ route: '/pages/play/play' }] }),
+    'pages/play/play', '去掉前导 /（便于与页面 route 常量直接比对）')
+  H.eq(navigation.topRoute({}), '', '没有页面栈信息时返回空串（调用方据此判「无法取证」）')
+  H.eq(navigation.topRoute({ getCurrentPages: () => { throw new Error('boom') } }), '',
+    'getCurrentPages 抛错时静默返回空串，不影响导航')
 
   /* ------------------------------- 8. store 每次跳转前重置，不残留上一次参数 */
   H.section('8. 参数不跨次残留')

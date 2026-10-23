@@ -62,6 +62,12 @@ const MODE_CARDS = [
 
 const SETTINGS_URL = '/pages/placeholder/placeholder?title=设置&desc=引擎模式、自动点评与模型偏好将在设置页集中管理，敬请期待。'
 
+/** 本页 route：跳转后用它和页面栈顶比对，作为「确实已经离开本页」的证据（见 _isPageHidden） */
+const LANDING_ROUTE = 'pages/landing/landing'
+
+/** 点了之后多久内的 onHide 才算「这次跳转真的切走了」（超出就当成切后台等无关隐藏） */
+const NAV_EVIDENCE_MS = 5000
+
 Page({
   data: {
     cards: MODE_CARDS,
@@ -85,6 +91,12 @@ Page({
   onLoad() {
     /** 最近一次已询问过的剪贴板 FEN：同一内容只弹一次（与 analyze 共用同一去重语义） */
     this._lastPromptedFen = ''
+    /** 最近一次跳转的结论（'' = 还没结论）：唯一目的是别把成功误报成失败（见 _isPageHidden） */
+    this._navFailReason = ''
+    /** 最近一次点击跳转的时间戳：onHide 撤误报时据此判断「是不是这一次跳转造成的切页」 */
+    this._navPendingAt = 0
+    this._hidden = false
+    this._hideCount = 0
     debugLog.push('info', '[页面] Landing 已加载 · ' +
       (typeof wx !== 'undefined' && typeof wx.request === 'function' ? '可发起网络请求' : '无网络请求能力'))
     // 日志变化时只更新界面（用户没展开调试面板就不 setData，避免无谓渲染）
@@ -98,8 +110,37 @@ Page({
     this._debugUnsubscribe = null
   },
 
+  /**
+   * 页面被切走：这本身就是「上一次跳转生效了」的铁证。
+   * 部分宿主（内置预览）不做 success/fail 回调，只能靠 onHide 补判；
+   * 顺便把已经贴到界面上的「点击后没有响应」误报撤掉——用户返回时不该看到假错误。
+   * 撤误报只认「刚点完就切走」（窗口内）：小程序切后台也会触发 onHide，那是另一回事。
+   */
+  onHide() {
+    this._hidden = true
+    this._hideCount = (this._hideCount || 0) + 1
+    const justTapped = this._navPendingAt && (Date.now() - this._navPendingAt) <= NAV_EVIDENCE_MS
+    if (this._navFailReason === 'no-callback' && this.data.navError && justTapped) {
+      this._navFailReason = ''
+      this.setData({ navError: '', copyHint: '' })
+      debugLog.push('info', '[导航] 已离开页面 → 撤销「没有响应」误报（宿主未回调）')
+    }
+  },
+
   onShow() {
+    this._hidden = false
     this._checkClipboardForFen()
+  },
+
+  /**
+   * 宿主是否已经把本页切走（导航层超时前的取证入口）。
+   * 两条独立证据：① onHide 过；② 页面栈顶已不是 landing（有的宿主不触发 onHide）。
+   * 两条都拿不到就返回 false，让导航层照常显形「没有响应」——不猜。
+   */
+  _isPageHidden() {
+    if (this._hidden) return true
+    const route = navigation.topRoute()
+    return !!route && route !== LANDING_ROUTE
   },
 
   /**
@@ -121,17 +162,31 @@ Page({
    * 统一跳转入口（utils/navigation.js）：先按带 query 的绝对路径跳，
    * 失败再依次换形式重试；全失败则把实际错误贴到界面上，不再静默。
    * 成功/失败的细节都写进运行日志——「第几种形式成功」是判断宿主差异的唯一证据。
+   *
+   * isPageHidden：宿主可能跳成功却不回调（内置预览实测如此），
+   * 超时前用「页面已切走」取证，避免把成功报成「点击后没有响应」。
    */
   _go(url) {
     const host = typeof wx !== 'undefined' ? wx : null
     debugLog.push('info', '[导航] 前往 ' + url)
+    this._navFailReason = ''
+    this._navPendingAt = Date.now()
+    // 重试即清上一次的残留错误：否则上一次的失败横幅会一直挂着，看起来像这次也失败了
+    if (this.data.navError) this.setData({ navError: '', copyHint: '' })
     navigation.navigate(url, {
       host: host,
+      isPageHidden: () => this._isPageHidden(),
+      // 测试用它把看门狗压到几十毫秒，否则「宿主不回调」要等满 1.5 秒
+      noCallbackMs: this._navTimeoutMs,
       onSuccess: info => {
-        debugLog.push('info', '[导航] 成功 · ' + (info.url || '') +
-          '（第 ' + (info.attempts || 1) + ' 种形式' + (info.via ? ' · ' + info.via : '') + '）')
+        this._navFailReason = ''
+        const how = info.via === 'page-hidden'
+          ? '页面已切走 · 宿主未回调（静默成功）'
+          : '第 ' + (info.attempts || 1) + ' 种形式' + (info.via ? ' · ' + info.via : '')
+        debugLog.push('info', '[导航] 成功 · ' + (info.url || '') + '（' + how + '）')
       },
       onFail: info => {
+        this._navFailReason = info.reason || 'unknown'
         debugLog.push('error', '[导航] 失败 · ' + (info.reason || 'unknown') + ' · ' + (info.errMsg || ''))
         const tried = Array.isArray(info.tried) ? info.tried : []
         tried.forEach(t => {

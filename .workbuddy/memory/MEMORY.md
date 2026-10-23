@@ -22,7 +22,7 @@
 - **L0 纯功能层**：`game/board-model/engine/remote-engine/ai-client` + `analysis-service`、`coach-service`、`comment-model`（点评可点走法协议层）、`settings`、`coach-runner`（点评编排）、`session-store`（单例：Game + Session 树 + pendingParams）、`clipboard-import`、`navigation`、`engine-probe` 等。
 - **L1 共享组件**（`components/`，5 个）：`board-view` / `session-bar` / `engine-panel` / `comment-card` / `move-list`。统一 `styleIsolation:"apply-shared"`；共享原子类在 `app.wxss`（`.card/.row/.gap/.btn/.chip/.head/.muted/.tiny/.error/.tech-detail/.tone-*`）。
 - **L2 页面**：`landing`（四卡片+设置+调试面板）、`placeholder`、`analyze`、`play`、`replay` **已完成（2026-10-22）**；设置页（P5）、练习（P4，依赖外部题库）deferred。任务分解见 `docs/平台化重构进度看板.md` §2。
-- **单包结构**（2026-10-22 晚由分包改回，`pkg-*` 已迁入 `pages/`）：内置预览不支持页面跳转（四种 url 形式全失败，真机正常）。加模块 = `pages/` 加页面 + Landing 注册卡片。**不要再加回分包**；主包约 1.06MB / 上限 2MB。
+- **单包结构**（2026-10-22 晚由分包改回，`pkg-*` 已迁入 `pages/`）：当时因内置预览四种 url 形式全失败而放弃分包（2026-10-23 复测：预览已能跳转、只是不回调）。加模块 = `pages/` 加页面 + Landing 注册卡片。**不要再加回分包**；主包约 1.06MB / 上限 2MB。
 - 页面 handler 双读 `e.detail` + 旧 `currentTarget.dataset`；新增页面 `onLoad` 首行 `options = navigation.mergeLaunchOptions(options)`。
 
 ## 渲染/样式硬约束（踩过的坑）
@@ -58,6 +58,7 @@
 
 ## 页面导航与预览限制
 - 一律 `utils/navigation.js#navigate(url,{host,onFail,onSuccess})`，**不要直接 `wx.navigateTo`**；候选 url 形式自适应 + 全失败显形，`onSuccess` 报告第几种形式成功（Landing 写运行日志）。
+- **预览面板已能跳转，但仍不回调 `success`/`fail`**（2026-10-23 实测）：超时前必须取证再定性——`opts.isPageHidden` / `navigation.topRoute()` 命中「已离开本页」就判成功（`via:'page-hidden'`，日志「静默成功」），只有证明还在本页才报 `no-callback`。否则返回首页会看到「点击后没有响应」假错误。宿主返回 Promise 的也一并接住。
 - 预览没有剪贴板 → 复制按钮必须显形提示「长按选中」；错误正文/日志带 `user-select`。
 - Landing 调试面板（默认收起）：运行日志 + 10 项宿主接口能力探测。
 
@@ -76,7 +77,7 @@
 
 ## 回归测试门禁
 `.workbuddy/tests/` 零依赖（`_harness.js`）。managed node：`C:/Users/Administrator/.workbuddy/binaries/node/versions/22.22.2-6/node.exe`
-- 页面层：`analyze-page 253` / `play-page 78` / `replay-page 125` / `landing 60` / `navigation 35` / `session 46`
+- 页面层：`analyze-page 253` / `play-page 78` / `replay-page 125` / `landing 73` / `navigation 46` / `session 46`
 - 解析层：`pgn-tree 55`
 - 服务层：`engine-and-game 153` / `remote-engine 88` / `cloud-adapter 68` / `agent-tools 48` / `analysis-service 43` / `comment-model 31` / `engine-config 30` / `coach-service 15` / `coach-demo`（独立脚本）
 - 页面测试开头 `ai.setEngineMode('local')`；等待一律 `waitFor()` 轮询（15s），不写死 sleep；引擎回着/收尾分析等 `myTurn===true`。

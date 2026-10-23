@@ -252,6 +252,58 @@ async function main() {
   H.eq(engineAfter.failStreak, engineBefore.failStreak, '探测不改熔断计数')
   H.eq(engineAfter.permanentlyBlocked, engineBefore.permanentlyBlocked, '探测不改永久屏蔽标记')
 
+  /* --------------- 10. 宿主跳成功却不回调：不许把成功报成「点击后没有响应」 --------------- */
+  H.section('10. 静默跳转（宿主不回调）的取证与误报撤销')
+
+  // 10a. 页面已切走（onHide）→ 看门狗不报错，日志标明「静默成功」
+  debugLog.clear()
+  const silentNav = makeWx('', false)              // 桩的 navigateTo 只记录、不回调 = 预览实测行为
+  const q1 = createLanding(silentNav)
+  q1._navTimeoutMs = 40
+  q1.onCardTap({ currentTarget: { dataset: { url: '/pages/play/play?mode=play' } } })
+  q1.onHide()                                      // 宿主确实把页面切走了
+  await sleep(150)
+  H.eq(silentNav.__calls.navigateTo, 1, '点击确实发出了跳转')
+  H.eq(q1.data.navError, '', '返回首页时不再出现「这个入口没打开」的假错误')
+  H.ok(debugLog.text().indexOf('静默成功') !== -1, '日志标出「页面已切走 · 宿主未回调」便于排查宿主差异')
+  H.eq(q1._hideCount, 1, 'onHide 计数用于取证')
+
+  // 10b. 看门狗先误报、随后页面才切走 → 撤销误报（否则用户返回时看到假错误）
+  debugLog.clear()
+  const lateNav = makeWx('', false)
+  const q2 = createLanding(lateNav)
+  q2._navTimeoutMs = 30
+  q2.onCardTap({ currentTarget: { dataset: { url: '/pages/replay/replay?mode=replay' } } })
+  await sleep(120)
+  H.ok(q2.data.navError.indexOf('没有响应') !== -1, '取证前仍先显形（不静默吞掉真故障）')
+  q2.onHide()
+  H.eq(q2.data.navError, '', '页面随后被切走 → 撤销误报')
+  H.ok(debugLog.text().indexOf('撤销') !== -1, '撤销动作留日志痕迹')
+
+  // 10c. 宿主不触发 onHide 时，用页面栈顶 route 取证
+  debugLog.clear()
+  global.getCurrentPages = () => [{ route: 'pages/analyze/analyze' }]
+  const routeNav = makeWx('', false)
+  const q3 = createLanding(routeNav)
+  q3._navTimeoutMs = 30
+  q3.onCardTap({ currentTarget: { dataset: { url: '/pages/analyze/analyze?mode=analyze' } } })
+  await sleep(120)
+  H.eq(q3.data.navError, '', '栈顶已不是 landing → 判定跳转生效，不显形')
+  H.ok(debugLog.text().indexOf('静默成功') !== -1, '这条路径同样记「静默成功」')
+  q3.onShow()
+  H.eq(q3._hidden, false, 'onShow 复位隐藏标记（返回首页后不再处于「已切走」）')
+  H.ok(q3._isPageHidden() === true, '但栈顶仍是 analyze → 取证仍认为已离开（route 通道独立生效）')
+  delete global.getCurrentPages
+
+  // 10d. 真没反应（既无回调、也没离开）时仍要显形
+  const deadNav = makeWx('', false)
+  const q4 = createLanding(deadNav)
+  q4._navTimeoutMs = 30
+  q4.onCardTap({ currentTarget: { dataset: { url: '/pages/play/play?mode=play' } } })
+  await sleep(120)
+  H.ok(q4.data.navError.indexOf('没有响应') !== -1, '宿主彻底无响应时界面仍有反馈')
+  H.ok(q4.data.navError.indexOf('pages/play/play') !== -1, '文案带上尝试的 url')
+
   return H.summary('landing.test.js')
 }
 

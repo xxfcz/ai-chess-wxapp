@@ -21,6 +21,11 @@
  * 全部失败再退 redirectTo / reLaunch（页面栈满时本来也该这么做），
  * 仍失败则回调 onFail({ errMsg, tried }) 由页面显形——不许静默降级。
  *
+ * 2026-10-23 补丁（预览面板已支持跳转、但不回调）：宿主动了页面却既不给 success 也不给
+ * fail，看门狗会把**成功**报成「点击后没有响应」，用户返回首页才看到这条假错误。
+ * 现在超时前先取「跳转确实生效」的硬证据（页面被隐藏 / 页面栈顶已换页，见 topRoute），
+ * 有证据按成功上报（via:'page-hidden'）。回调通道照旧优先；宿主若只返回 Promise，也一并接住。
+ *
  * 参数怎么不丢：一旦走的是「不带 query」的形式，query 解析结果写进
  * sessionStore.pendingParams，目标页 onLoad 用 mergeLaunchOptions(options) 取回。
  * 写在前置（点击时）而不是 success 里——微信新页面 onLoad 早于 success 回调。
@@ -34,6 +39,29 @@ const { sessionStore } = require('./session-store')
  * 这时**不继续盲试下一个 url**：可能其实已经跳走了，再试会重复跳页。
  */
 const NO_CALLBACK_MS = 1500
+
+/**
+ * 取「当前页面栈顶的 route」（去前导 /），拿不到返回空串。
+ *
+ * 为什么需要它：部分宿主（WorkBuddy 内置预览）执行了跳转、页面也真的换了，
+ * 却**不回调 success / fail**。只靠回调判断会把成功当失败报出来，
+ * 而「栈顶不再是本页」是跳转确实生效的硬证据——比回调可信。
+ */
+function topRoute(host) {
+  let fn = null
+  if (host && typeof host.getCurrentPages === 'function') fn = host.getCurrentPages
+  else if (typeof getCurrentPages === 'function') fn = getCurrentPages
+  else if (typeof wx !== 'undefined' && wx && typeof wx.getCurrentPages === 'function') fn = wx.getCurrentPages
+  if (!fn) return ''
+  try {
+    const pages = fn() || []
+    const top = pages[pages.length - 1]
+    const route = top && (top.route || top.__route__)
+    return route ? String(route).replace(/^\/+/, '') : ''
+  } catch (e) {
+    return ''
+  }
+}
 
 function stripQuery(url) {
   const i = url.indexOf('?')
@@ -94,9 +122,12 @@ function defaultHost() {
 /**
  * 跳转到目标页。
  * @param {string} url 绝对路径（可带 query），如 '/pages/play/play?mode=play'
- * @param {{host?:object, onFail?:function, onSuccess?:function}} [opts]
+ * @param {{host?:object, onFail?:function, onSuccess?:function,
+ *          isPageHidden?:function, noCallbackMs?:number}} [opts]
  *        host 缺省取全局 wx；onFail({reason,errMsg,tried}) 由页面负责显示；
- *        onSuccess({url,attempts,via}) 报告「第几种形式成功了」——排查环境差异时这是唯一证据
+ *        onSuccess({url,attempts,via}) 报告「第几种形式成功了」——排查环境差异时这是唯一证据；
+ *        isPageHidden 返回 true 表示「宿主虽然没有回调，但页面确实已经切走」→ 按成功处理；
+ *        noCallbackMs 覆盖看门狗时限（测试用，生产别传）
  * @returns {boolean} 是否至少发出了第一次跳转请求
  */
 function navigate(url, opts) {
@@ -104,6 +135,10 @@ function navigate(url, opts) {
   const host = opts.host || defaultHost()
   const onFail = typeof opts.onFail === 'function' ? opts.onFail : function () {}
   const onSuccess = typeof opts.onSuccess === 'function' ? opts.onSuccess : function () {}
+  const isPageHidden = typeof opts.isPageHidden === 'function' ? opts.isPageHidden : null
+  const noCallbackMs = typeof opts.noCallbackMs === 'number' && opts.noCallbackMs > 0
+    ? opts.noCallbackMs
+    : NO_CALLBACK_MS
 
   if (!url) {
     onFail({ reason: 'empty-url', errMsg: '未提供跳转目标', tried: [] })
@@ -146,19 +181,30 @@ function navigate(url, opts) {
       attempt(i + 1)
     }
 
+    let ret = null
     try {
-      host.navigateTo({ url: u, success: succeed, fail: fail })
+      ret = host.navigateTo({ url: u, success: succeed, fail: fail })
     } catch (e) {
       fail(e)
       return true
+    }
+    // 有些宿主（含部分预览实现）不认回调、只返回 Promise：两条通道都接上，谁先到算谁的
+    if (ret && typeof ret.then === 'function') {
+      try { ret.then(succeed, fail) } catch (e) { /* 忽略：回调通道仍有效 */ }
     }
 
     timer = setTimeout(() => {
       if (settled) return
       settled = true
-      // 只上报，不推进：无法区分「静默成功」与「静默失败」，宁可停在这里
+      // 先找「跳转确实生效」的证据（页面被隐藏 / 栈顶已换页）：
+      // 有证据就按成功上报，绝不能把成功报成「点击后没有响应」。
+      // 没有证据也不推进下一个 url——可能只是宿主慢，盲试会重复跳页。
+      if (isPageHidden && isPageHidden()) {
+        onSuccess({ url: u, attempts: i + 1, via: 'page-hidden' })
+        return
+      }
       finishFail('no-callback', '点击后没有响应（' + u + '）')
-    }, NO_CALLBACK_MS)
+    }, noCallbackMs)
     if (timer && typeof timer.unref === 'function') timer.unref()
     return true
   }
@@ -230,6 +276,7 @@ module.exports = {
   navigate,
   mergeLaunchOptions,
   describeFailure,
+  topRoute,
   // 以下导出给单测用
   candidates,
   parseQuery,

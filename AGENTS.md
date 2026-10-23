@@ -176,11 +176,12 @@ ENGINE_TIMEOUT_MS=10000                      # 留空用默认 10000
 
 ### 6.6 页面导航（预览运行时的 url 解析差异）
 - **不要直接调 `wx.navigateTo`**，统一走 `utils/navigation.js#navigate(url, {host, onFail})`。
-- 起因：内置预览里 `navigateTo` 报 `navigationTo: fail 未找到页面`，连主包 `pages/placeholder` 也找不到。四种 url 形式（带 query / 去 query / 相对路径 / 相对去 query）**在预览里全部失败**，而真机一直正常。
+- 起因：内置预览里 `navigateTo` 报 `navigationTo: fail 未找到页面`，连主包 `pages/placeholder` 也找不到。四种 url 形式（带 query / 去 query / 相对路径 / 相对去 query）**当时在预览里全部失败**，而真机一直正常。（2026-10-23 复测：预览已能跳转，只是仍不回调 `success`/`fail` —— 见本节倒数第二条的取证修正。）
 - **结论：项目已放弃分包（2026-10-22 晚）**。三个模式页 `pkg-*` 已移入主包 `pages/analyze|play|replay`，`app.json` 不再有 `subPackages`。**不要再加回分包**，直到确认预览支持分包导航；加模式 = 在 `pages/` 下加一个页面 + 在 Landing 注册一张卡片。
 - 处理方式仍是「**候选形式依次尝试**」：原样 → 去 query → 相对路径（去前导 `/`）→ 相对路径去 query → 兜底 `redirectTo` / `reLaunch`；任一成功即停。**全部失败必须回调 `onFail` 并显示在界面上**（Landing 顶部有「这个入口没打开」卡片 + 复制详情），不许静默。
 - 参数不能丢：一旦走了「不带 query」的形式，query 解析结果写进 `sessionStore.setPendingParams()`，目标页 `onLoad` 第一行用 `navigation.mergeLaunchOptions(options)` 取回（一次性语义，显式 options 优先）。**新增页面若读 `options.xxx`，就必须加这一行。**
-- 环境既不回调 `success` 也不回调 `fail` 时，只上报一次（`NO_CALLBACK_MS`），**不再盲试下一个 url** —— 可能其实已经跳走，重试会重复跳页。
+- 环境既不回调 `success` 也不回调 `fail` 时，**先取证再定性**（2026-10-23 修正）：预览面板现在**能跳转但不回调**，单看回调会把成功报成「点击后没有响应」，而且这条假错误要等用户返回首页才看见。取证两条独立通道 —— `onHide`（页面被切走）与 `navigation.topRoute()`（页面栈顶 `route` 已不是本页）；命中任一即按成功上报（`via:'page-hidden'`，日志写「静默成功」），只有两条都证明「还在本页」才显形 `no-callback`。超时后仍**不盲试下一个 url**（可能只是宿主慢，盲试会重复跳页）。
+- 宿主若不认回调、只返回 Promise（部分预览实现），`navigate` 会把返回值当 thenable 接住，与回调通道谁先到算谁的。
 - `onSuccess({url,attempts,via})` 会报告「第几种形式成功」，Landing 把它写进运行日志：**这是判断宿主差异的唯一证据**（原生应是「第 1 种形式」，预览若退到第 2/3 种就说明它对 query 或前导 `/` 挑剔）。
 - **Landing 底部有「调试」入口**（默认收起）：运行日志 + 10 个宿主接口的能力探测（`navigateTo`/`redirectTo`/`setClipboardData`/`setEnableDebug` 等，✗ 表示宿主没实现）。预览面板没有可翻看的控制台，这里是唯一出口；日志块与错误详情都带 `user-select`，**预览常常没有剪贴板接口，复制按钮无效时必须靠长按选中**（按钮会显形提示，不许无反应）。
 
