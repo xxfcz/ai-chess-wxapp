@@ -9,9 +9,11 @@
   <!-- 生成中：先给流式正文（已剔除结构化块）；完成后一律切成富文本片段，不再有纯文本兜底 -->
   <text wx:if="{{commenting && coachText}}" class="coach-text" bindlongpress="onCoachLongPress">{{coachText}}</text>
   <text wx:elif="{{commenting}}" class="muted tiny">{{commentingHint}}</text>
-  <text wx:elif="{{coachSegments.length}}" class="coach-text" bindlongpress="onCoachLongPress">
-    <text wx:for="{{coachSegments}}" wx:key="key" class="seg {{item.line || item.sq || item.piece ? 'seg-move ' + item.cls : ''}}" data-line="{{item.line}}" data-ply="{{item.ply}}" data-sq="{{item.sq}}" data-piece="{{item.piece}}" bindtap="onCoachTokenTap">{{item.text}}</text>
-  </text>
+  <!-- 片段类名必须是组件私有（cc-seg）：styleIsolation=apply-shared 时页面 wxss 会漏进组件，
+       页面里同名的 .seg（pages/play 的分段控件 = display:flex）会把每个片段撑成独立一行。
+       详见分析页测试 §11「类名跨层重名守卫」。
+       内层 wx:for 必须紧贴父标签书写：.coach-text 是 pre-wrap，元素间的空白文本节点会渲染成空行。 -->
+  <text wx:elif="{{coachSegments.length}}" class="coach-text" bindlongpress="onCoachLongPress"><text wx:for="{{coachSegments}}" wx:key="key" class="cc-seg {{item.line || item.sq || item.piece ? 'seg-move ' + item.cls : ''}}" data-line="{{item.line}}" data-ply="{{item.ply}}" data-sq="{{item.sq}}" data-piece="{{item.piece}}" bindtap="onCoachTokenTap">{{item.text}}</text></text>
   <text wx:elif="{{coachError}}" class="error">{{coachError}}</text>
   <text wx:elif="{{cloudHint}}" class="muted tiny">{{cloudHint}}</text>
   <text wx:else class="muted tiny">基于当前局面与三条候选路线，由云端大模型给出中文讲解。</text>
@@ -32,8 +34,8 @@
     <view class="demo-lines">
       <view wx:for="{{demoLines}}" wx:key="key" class="demo-line" data-line="{{item.id}}" bindlongpress="onLineLongPress">
         <text class="demo-line-label {{item.cls}}" data-line="{{item.id}}" bindtap="onEnterDemo">{{item.label}}（{{item.total}}手）</text>
-        <text class="demo-line-desc"><text wx:for="{{item.segs}}" wx:for-item="seg" wx:key="key" class="seg {{seg.line || seg.sq || seg.piece ? 'seg-move ' + seg.cls : ''}}" data-line="{{seg.line}}" data-ply="{{seg.ply}}" data-sq="{{seg.sq}}" data-piece="{{seg.piece}}" bindtap="onCoachTokenTap">{{seg.text}}</text></text>
-        <text class="demo-line-moves"><text wx:for="{{item.moves}}" wx:for-item="mv" wx:key="key" class="seg {{mv.line || mv.sq || mv.piece ? 'seg-move ' + mv.cls : ''}}" data-line="{{mv.line}}" data-ply="{{mv.ply}}" data-sq="{{mv.sq}}" data-piece="{{mv.piece}}" bindtap="onCoachTokenTap">{{mv.text}}</text></text>
+        <text class="demo-line-desc"><text wx:for="{{item.segs}}" wx:for-item="seg" wx:key="key" class="cc-seg {{seg.line || seg.sq || seg.piece ? 'seg-move ' + seg.cls : ''}}" data-line="{{seg.line}}" data-ply="{{seg.ply}}" data-sq="{{seg.sq}}" data-piece="{{seg.piece}}" bindtap="onCoachTokenTap">{{seg.text}}</text></text>
+        <text class="demo-line-moves"><text wx:for="{{item.moves}}" wx:for-item="mv" wx:key="key" class="cc-seg {{mv.line || mv.sq || mv.piece ? 'seg-move ' + mv.cls : ''}}" data-line="{{mv.line}}" data-ply="{{mv.ply}}" data-sq="{{mv.sq}}" data-piece="{{mv.piece}}" bindtap="onCoachTokenTap">{{mv.text}}</text></text>
       </view>
     </view>
   </view>

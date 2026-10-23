@@ -10,7 +10,7 @@
     <view class="eval-fill" style="height:{{evalPercent}}%"></view>
   </view>
   <view
-    class="grid"
+    class="board-grid"
     style="width:{{boardSize}}px;height:{{boardSize}}px;"
     catchtouchmove="moveCell"
     bindtouchend="endCell"

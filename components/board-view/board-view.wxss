@@ -32,7 +32,9 @@
   transition: height 0.25s ease;
 }
 
-.grid {
+/* 类名带组件前缀：styleIsolation=apply-shared 下页面 wxss 会漏进组件，
+   pages/landing.wxss 的 .grid 是模式卡片栅格（flex-wrap + space-between），裸 .grid 会被它命中 */
+.board-grid {
   position: relative;
   display: flex;
   flex-wrap: wrap;

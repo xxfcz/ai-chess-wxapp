@@ -686,6 +686,66 @@ async function main() {
   H.ok(sample.data.debugRows.every(r => typeof r.key === 'string'), 'debugRows 自带字符串 key')
   H.ok(sample.data.cells.every(c => typeof c.sq === 'string'), 'cells 自带字符串 sq')
 
+  /* 11.1 类名跨层重名守卫（2026-10-23）
+     组件统一 styleIsolation="apply-shared" → 页面 wxss 会作用到组件节点上。
+     组件 wxml 里用的类名一旦与某个页面 wxss 的同名选择器相撞，页面样式就会改掉组件外观。
+     真实回归：comment-card 的点评片段用裸 .seg，被 pages/play.wxss 的分段控件
+     （display:flex + 底色 + 边框）命中，正文每个走法/文字片段都被撑成独立一行。
+     规则：组件类名自成一域（.cc-seg / .board-grid ...）；app.wxss 的全局原子类可共用。 */
+  const collectByExt = (dir, ext, acc) => {
+    if (!fs.existsSync(dir)) return acc
+    fs.readdirSync(dir, { withFileTypes: true }).forEach(d => {
+      const full = path.join(dir, d.name)
+      if (d.isDirectory()) collectByExt(full, ext, acc)
+      else if (d.isFile() && d.name.endsWith(ext)) acc.push(full)
+    })
+    return acc
+  }
+  const classNamesIn = text => {
+    const out = []
+    const re = /\.([A-Za-z_][\w-]*)/g
+    let mm
+    while ((mm = re.exec(text))) out.push(mm[1])
+    return out
+  }
+
+  const globalClasses = {}
+  classNamesIn(fs.readFileSync(path.join(ROOT, 'app.wxss'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, ''))
+    .forEach(c => { globalClasses[c] = true })
+
+  const pageClasses = {}
+  collectByExt(path.join(ROOT, 'pages'), '.wxss', []).forEach(f => {
+    classNamesIn(fs.readFileSync(f, 'utf8').replace(/\/\*[\s\S]*?\*\//g, ''))
+      .forEach(c => { pageClasses[c] = path.relative(ROOT, f) })
+  })
+
+  // 组件 wxml 用到的类名：静态字面量 + {{ }} 里拼接的单引号字面量
+  const componentClasses = {}
+  collectByExt(path.join(ROOT, 'components'), '.wxml', []).forEach(f => {
+    const tpl = fs.readFileSync(f, 'utf8').replace(/<!--[\s\S]*?-->/g, '')
+    const classRe = /class="([^"]*)"/g
+    let m2
+    while ((m2 = classRe.exec(tpl))) {
+      const raw = m2[1]
+      const literals = (raw.match(/'[^']*'/g) || []).map(s => s.slice(1, -1)).join(' ')
+      const tokens = (raw.replace(/\{\{[\s\S]*?\}\}/g, ' ') + ' ' + literals).split(/\s+/)
+      tokens.forEach(c => {
+        if (/^[A-Za-z_][\w-]*$/.test(c)) componentClasses[c] = path.relative(ROOT, f)
+      })
+    }
+  })
+
+  // 守卫自检：两边都真读到了东西，否则它会变成永远通过的哑断言
+  H.ok(!!componentClasses['cc-seg'], '守卫能读到组件私有类名（cc-seg）')
+  H.ok(!!pageClasses['seg'], '守卫能读到页面类名（play 的分段控件 seg）')
+  H.ok(globalClasses['card'], '守职能识别 app.wxss 的全局原子类')
+
+  const collisions = Object.keys(componentClasses)
+    .filter(c => pageClasses[c] && !globalClasses[c])
+    .map(c => c + '（组件 ' + componentClasses[c] + ' ↔ 页面 ' + pageClasses[c] + '）')
+  H.eq(collisions.length, 0, '组件类名没有与任何页面 wxss 类名重名')
+  if (collisions.length) collisions.forEach(c => console.log('      类名冲突：' + c))
+
   /* ------------------------------------------------------- 12. app.json */
   H.section('12. 配置守卫')
 

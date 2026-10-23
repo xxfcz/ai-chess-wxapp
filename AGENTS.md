@@ -184,6 +184,13 @@ ENGINE_TIMEOUT_MS=10000                      # 留空用默认 10000
 - `onSuccess({url,attempts,via})` 会报告「第几种形式成功」，Landing 把它写进运行日志：**这是判断宿主差异的唯一证据**（原生应是「第 1 种形式」，预览若退到第 2/3 种就说明它对 query 或前导 `/` 挑剔）。
 - **Landing 底部有「调试」入口**（默认收起）：运行日志 + 10 个宿主接口的能力探测（`navigateTo`/`redirectTo`/`setClipboardData`/`setEnableDebug` 等，✗ 表示宿主没实现）。预览面板没有可翻看的控制台，这里是唯一出口；日志块与错误详情都带 `user-select`，**预览常常没有剪贴板接口，复制按钮无效时必须靠长按选中**（按钮会显形提示，不许无反应）。
 
+### 6.7 组件样式边界：`apply-shared` 会让页面样式漏进组件
+- 5 个 L1 组件统一 `styleIsolation:"apply-shared"`（为了能用 `app.wxss` 的全局原子类），代价是**页面 wxss 也会作用到组件节点上**。
+- 所以**组件内部使用的类名必须带组件前缀**：`comment-card` 用 `.cc-seg`、`board-view` 用 `.board-grid`。裸类名（`.seg`、`.grid`）一旦与某个页面的同名规则撞上，就会静默改掉组件外观。
+- 真实回归（2026-10-23）：`comment-card` 的点评片段用裸 `.seg`，被 `pages/play.wxss` 的分段控件（`display:flex` + 底色 + 边框）命中，**正文里每个走法/文字片段都单独占一行**，看上去像被拆成了列表。
+- `analyze-page.test.js` §11.1 有「类名跨层重名守卫」：组件 wxml 用到的类名不得与任何页面 wxss 的类名重名（`app.wxss` 的全局原子类例外）。新增组件类名先想清楚归属层。
+- 片段拼接还有两个配套细节：`.coach-text` 等容器用 `white-space: pre-wrap` 保住片段之间的空格；内层 `wx:for` **紧贴父标签书写**，否则模板缩进会渲染成空行。
+
 ## 7. 云服务（AI 教练点评）
 
 - 只用一个入口：`@tencent-ai/workbuddy-cloud-sdk/miniprogram`；`utils/cloud.js` 单点初始化，懒加载复用；**必须同时传 `publicConfig.endpoint` 与 `publishableKey`**（小程序没有 `location.origin`，缺 endpoint 直接初始化失败），并挂 `createDiagnosticWx(wx)` 适配器。
