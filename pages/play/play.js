@@ -775,8 +775,9 @@ Page({
     }
     if (this._engineDegraded) return
     this._engineDegraded = true
-    device.toast('云端引擎不可用，已改用本地引擎')
-    debugLog.push('warn', '[引擎] 已降级到本地 · ' + ((result && result.degradedFrom) || ''))
+    device.toast((src && src.toast) || '云端引擎不可用，已改用本地引擎')
+    debugLog.push('warn', '[引擎] 已降级到本地 · ' + ((result && result.degradedFrom) || '') +
+      (result && result.degradedDetail ? ' · ' + result.degradedDetail : ''))
   },
 
   onPreviewLine(e) {

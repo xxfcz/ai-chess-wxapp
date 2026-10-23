@@ -68,8 +68,15 @@ async function analyzePosition(params) {
  * 「降级必须显形」（能力开关文档铁律 3）：远端挂了不能静默变成本地结果，
  * 必须在界面上说清楚缺了什么、评分精度会下降。
  *
+ * 另外要分清「环境不允许」和「服务坏了」——两者对用户的下一步动作完全不同：
+ *   - 预览沙箱（PREVIEW_SANDBOX）：宿主设计如此，换真机就好，**别当成引擎故障排查**；
+ *   - 网关/白名单（GATEWAY_BLOCK）：配置问题，要改域名或加白名单；
+ *   - 其余（超时/排队/限流）：服务端波动，等一会或重试。
+ *
  * @param {object} result analyzePosition 的结果
- * @returns {{ source:string, label:string, notice:string, degraded:boolean }}
+ * @returns {{ source:string, label:string, notice:string, degraded:boolean,
+ *            degradedFrom:string, toast:string }}
+ *   toast 是状态翻转时弹的那一句短提示（长句塞不进 toast）。
  */
 function describeEngineSource(result) {
   const r = result || {}
@@ -78,15 +85,25 @@ function describeEngineSource(result) {
   if (remote && r.engineVersion) label = '云端 ' + r.engineVersion
 
   let notice = ''
+  let toast = '云端引擎不可用，已改用本地引擎'
   if (!remote && r.degradedFrom) {
     if (r.degradedFrom === 'ENV_NO_NETWORK') {
       notice = '当前环境不允许网络请求，已使用本地引擎（棋力较弱，评分仅供参考）。'
+      toast = '当前环境不能联网，已用本地引擎'
+    } else if (r.degradedFrom === 'PREVIEW_SANDBOX') {
+      // 内置预览面板的沙箱只放行平台云服务的 /.cloud/* 路径，外部引擎域一律 path not allowed，
+      // 且 wx.request 的 shim 会丢掉 host、只按 path 发到预览页自身 origin —— 换域名也无效。
+      // 这是预览宿主的设计行为，真机/体验版/正式版都没有这条限制。
+      notice = '预览环境只放行平台云服务，访问不到外部引擎，已使用本地引擎（棋力较弱，评分仅供参考）。' +
+        '这是预览沙箱的限制，不是引擎故障；真机 / 体验版 / 正式版不受影响。'
+      toast = '预览环境用本地引擎（正常现象）'
     } else if (r.degradedFrom === 'GATEWAY_BLOCK') {
-      // 后端地址在这个微信环境里根本连不出去（预览只允许 /.cloud/ 路径、真机被网关拦截、
+      // 后端地址在这个微信环境里根本连不出去（真机被网关拦截、
       // 或地址未配进 request 合法域名）：不是服务器故障，重试和熔断都没用。
       // 正式版需 https + 自有已备案域名，详见 docs/自建引擎服务部署方案.md
       notice = '当前引擎后端地址在这个环境里无法访问（未配合法域名或被网关拦截），' +
         '已改用本地引擎（棋力较弱，评分仅供参考）。正式版请改用自有已备案域名（https）部署引擎服务。'
+      toast = '外部引擎不可达，已改用本地引擎'
     } else {
       notice = '云端引擎' + remoteEngine.reasonText(r.degradedFrom) +
         '，已自动改用本地引擎（棋力较弱，评分仅供参考）。'
@@ -97,7 +114,9 @@ function describeEngineSource(result) {
     source: remote ? 'remote' : 'local',
     label: label,
     notice: notice,
-    degraded: !!notice
+    degraded: !!notice,
+    degradedFrom: r.degradedFrom || '',
+    toast: toast
   }
 }
 

@@ -120,9 +120,10 @@ function classify(result) {
 }
 
 const KIND_TEXT = {
-  blocked: '当前宿主只放行特定路径，引擎地址被沙箱拦下（换域名无效，只能换通道）',
+  blocked: '预览沙箱：当前宿主只放行平台 /.cloud/* 路径，外部引擎地址被拦下。' +
+    '这是预览环境的设计限制（换域名也无效），真机/体验版/正式版不受影响',
   whitelist: '域名不在 request 合法域名白名单（真机/体验版才会触发）',
-  gateway: '被前置网关拒绝（HTTP 403）',
+  gateway: '被前置网关拒绝（HTTP 403，多为微信移动端 UA 被拦）',
   timeout: '没有响应：网络不通，或宿主收了请求却不回调',
   network: '连接失败：DNS、TLS 或网络不可达',
   bad: '服务端返回了 5xx',

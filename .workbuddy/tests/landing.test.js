@@ -236,7 +236,8 @@ async function main() {
   const p13 = createLanding(blockedWx)
   p13.onProbeEngine()
   await sleep(200)
-  H.ok(p13.data.engineHint.indexOf('只放行特定路径') !== -1, '识别为宿主路径白名单')
+  H.ok(p13.data.engineHint.indexOf('预览沙箱') !== -1, '识别为预览沙箱（不是服务故障）')
+  H.ok(p13.data.engineHint.indexOf('真机') !== -1, '顺带说明真机/体验版不受影响')
 
   // 9d. 域名白名单：真机 / 体验版的典型失败
   const domainWx = makeWx('', false)

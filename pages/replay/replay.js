@@ -552,6 +552,7 @@ Page({
       source: src.source,
       label: src.label,
       notice: src.notice,
+      toast: src.toast,
       degraded: !!src.degraded,
       evalPercent: best ? ai.evalPercent(best.whiteCp) : 50,
       evalLabel: best ? best.text : '—',
@@ -615,8 +616,9 @@ Page({
     }
     if (this._engineDegraded) return
     this._engineDegraded = true
-    device.toast('云端引擎不可用，已改用本地引擎')
-    debugLog.push('warn', '[引擎] 已降级到本地 · ' + ((result && result.degradedFrom) || ''))
+    device.toast((entry && entry.toast) || '云端引擎不可用，已改用本地引擎')
+    debugLog.push('warn', '[引擎] 已降级到本地 · ' + ((result && result.degradedFrom) || '') +
+      (result && result.degradedDetail ? ' · ' + result.degradedDetail : ''))
   },
 
   /** 点一条路线：在棋盘上预览这步走法（不改变棋谱位置） */

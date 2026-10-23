@@ -762,6 +762,28 @@ async function main() {
   H.eq(dp.data.analysisLines.length, 3, '降级后仍然出三条线（端上保底通道）')
   H.eq(dp._engineDegraded, true, '页面记住了已降级状态，不会每次走子都弹提示')
 
+  // 预览沙箱（宿主只放行平台 /.cloud/* 路径）：这是设计行为，不是引擎故障。
+  // 界面文案必须点明「预览环境」，否则下次又会被当成引擎坏了去排查（2026-10-23 实测）。
+  ai.remoteEngine.reset()
+  const sandboxToasts = []
+  const wxSandbox = {
+    request(options) { options.fail({ errMsg: 'request:fail path not allowed' }) },
+    showToast(o) { sandboxToasts.push(o && o.title) },
+    setClipboardData(o) { if (o && o.success) o.success() },
+    getAccountInfoSync() { return { miniProgram: { appId: 'wxtest' } } }
+  }
+  const sb = createPage(wxSandbox)
+  sb.game.load(INITIAL_FEN)
+  sb.syncAll()
+  await sb.runAnalyze()
+  H.eq(sb.data.engineSource, 'local', '预览沙箱下落到本地引擎')
+  H.ok(sb.data.engineNotice.indexOf('预览') === 0, '降级提示开头就点明「预览环境」')
+  H.ok(sb.data.engineNotice.indexOf('不是引擎故障') !== -1, '降级提示明确「不是引擎故障」')
+  H.ok(sb.data.engineNotice.indexOf('真机') !== -1, '降级提示指出真机/体验版不受影响')
+  H.ok(sandboxToasts.some(t => t && t.indexOf('正常现象') !== -1),
+    'toast 用的是「正常现象」短句，不再统一弹「云端不可用」')
+  H.eq(sb.data.analysisLines.length, 3, '预览沙箱下仍出三条线（本地保底）')
+
   ai.setEngineMode('local')
   ai.remoteEngine.reset()
 

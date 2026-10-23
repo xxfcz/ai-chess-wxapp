@@ -59,9 +59,20 @@ function main() {
   const degradedGateway = svc.describeEngineSource({ source: 'local', degradedFrom: 'GATEWAY_BLOCK' })
   H.ok(degradedGateway.notice.indexOf('已备案域名') !== -1, 'GATEWAY_BLOCK 提示自有域名')
 
+  // 预览沙箱要与「服务故障」「网关拦截」区分开：不然下次又会被当成引擎坏了去排查
+  const degradedPreview = svc.describeEngineSource({ source: 'local', degradedFrom: 'PREVIEW_SANDBOX' })
+  H.ok(degradedPreview.degraded, '预览沙箱也属降级（必须显形）')
+  H.ok(degradedPreview.notice.indexOf('预览') === 0, '提示开头就点明「预览环境」')
+  H.ok(degradedPreview.notice.indexOf('不是引擎故障') !== -1, '明确写清这不是引擎故障')
+  H.ok(degradedPreview.notice.indexOf('真机') !== -1, '指出真机/体验版不受影响')
+  H.eq(degradedPreview.degradedFrom, 'PREVIEW_SANDBOX', '根因码透传给页面')
+  H.eq(degradedPreview.toast, '预览环境用本地引擎（正常现象）', 'toast 用短句，且语气是「正常现象」')
+
   const degradedGeneric = svc.describeEngineSource({ source: 'local', degradedFrom: 'ANALYZE_TIMEOUT' })
   H.ok(degradedGeneric.notice.indexOf('云端引擎') !== -1 && degradedGeneric.notice.indexOf('本地引擎') !== -1,
     '普通降级说清「云端 → 本地」')
+  H.eq(degradedGeneric.toast, '云端引擎不可用，已改用本地引擎', '普通降级保留原 toast 文案')
+  H.eq(remote.toast, '云端引擎不可用，已改用本地引擎', '未降级时 toast 只是兜底文案（不会弹）')
 
   H.section('setEngineMode / getEngineMode')
   svc.setEngineMode('local')

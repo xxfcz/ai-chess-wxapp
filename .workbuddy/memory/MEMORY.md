@@ -24,15 +24,16 @@
 - 协议权威：`E:\WorkBuddy\ai-chess-server\docs\05-小程序接入协议.md`。判错看 `body.type==='error'`；只用 `lines[].scoreCp/scoreMate`（行棋方视角）。
 - 行为：终局/非法FEN 本地前置拦截；失败/超时回落本地带 `degradedFrom`（不静默）；连续 2 次失败熔断 60s；400 类不回落直接抛。
 - 换域名只改 `remote-engine.js#DEFAULT_ENDPOINT`，**不要写进 `cloud-config.js`**（那是 LLM 凭据位）。
-- **真机/预览硬阻塞（2026-10-22 更正）**：`403 移动 UA` 只对 **CloudStudio 预览域名**成立，**不要套到 `chess.imex.de5.net`**——当天用完整 iPhone/Android MicroMessenger UA 实测 `GET /healthz` 与 `POST /v1` 均 **200**（Caddy 反代，Stockfish 15.1，pool 8）。真阻塞只有一处：**WorkBuddy 预览面板**的沙箱只放行 `mp-api.app.workbuddy.host` 的 `/.cloud/*`，`chess.imex.de5.net` 一律 `path not allowed`（换域名/换后端都没用，除非走该路径）。代码侧仍归类永久屏蔽 `GATEWAY_BLOCK` + 界面显形。
+- **真机/预览硬阻塞（2026-10-22 更正）**：`403 移动 UA` 只对 **CloudStudio 预览域名**成立，**不要套到 `chess.imex.de5.net`**——当天用完整 iPhone/Android MicroMessenger UA 实测 `GET /healthz` 与 `POST /v1` 均 **200**（Caddy 反代，Stockfish 15.1，pool 8）。真阻塞只有一处：**WorkBuddy 预览面板**的 `wx.request` 是本地 shim（`resources/extensions/workbuddy-baas-v2/server/index.cjs`），**只校验 pathname、丢弃 host**（`target=pathname+search` 后相对 `fetch` 到预览页 origin）→ 只放行 `/.cloud/*`，任何外部引擎域名（`chess.imex.de5.net` / `ai-chess-server.app.workbuddy.host`）一律 `path not allowed`；**在自己服务器加 `/.cloud` 别名也无效**（host 被丢）。代码侧归类永久屏蔽，**2026-10-23 起按根因拆两个码**：`path not allowed` → `PREVIEW_SANDBOX`（宿主设计行为，真机/体验版不受影响），403+HTML/未配白名单 → `GATEWAY_BLOCK`（配置问题）；`state().blockedKind` 暴露根因，界面/日志/toast 分三套文案（预览那句明说「不是引擎故障」）。另：`ai-chess-server.app.workbuddy.host` 桌面 UA 正常（`/v1` 200）、移动 MicroMessenger UA `POST /v1` 仍 403 + HTML「请在浏览器中打开」→ **只能当浏览器/CI/curl 调试后端，不能用于小程序**。
 - **四环境通路矩阵（2026-10-22 结论）**：无单通道能覆盖四个环境，LLM 通道与引擎通道的可用集合近乎互补。
   - 开发者工具「模拟器」「真机调试」：`urlCheck:false` / 调试态免校验 → 引擎与 LLM **都通**（真机调试仍需有效 HTTPS 证书）。
-  - 开发者工具「**预览**扫码」：**不校验开关不生效**，且当前 `project.config.json` 是**测试号** `wxe91834e9c2546603`（不能配服务器域名、不能开云开发）→ 两条**都断**。这是身份问题，不是架构问题；换正式 AppID 才解。
+  - 开发者工具「**预览**扫码」：**不校验开关不生效**，必须靠域名白名单。**2026-10-23 已切自有正式 AppID `wxd3f1d012e71052a9`**，且 `chess.imex.de5.net` + `mp-api.app.workbuddy.host` 两个域名已备案并配进 request 合法域名 → 预览/体验/正式均可通。旧测试号 `wxe91834e9c2546603` 时代「不能配服务器域名/云开发 → 双断」的结论已作废。
   - WorkBuddy 预览面板：LLM 通（有分块降级适配器）、引擎断（沙箱路径白名单）。
   - WorkBuddy 真机试用：LLM 通（受管 AppID 白名单已含 mp-api）；引擎按文档 10-16 记录为通，待复验。
   - **2026-10-22 23:45 实测更正（正式号 + 新应用后）**：开发者工具**真机都断**、WorkBuddy **预览都断**、
     体验版真机 **引擎通 / 点评断**。点评断的根因是**凭据被吊销**（非域名、非环境），已换新 key；
     引擎只在「预览面板」被沙箱路径白名单挡住，体验版真机是通的。判断环境限制前先分清**凭据 / 域名白名单 / 沙箱路径**三类。
+- **WorkBuddy 发布有两种方式（官方，2026-10-23 核实）**：①「创建试用版小程序」= 平台试用号（14 天 / 15 人 / **不能转正式**，引擎 ❌）；②「绑定已有小程序账号」= 管理员扫码授权、发到**你自己的 AppID**（体验版+正式版都能发，绑一次即可，体验/正式共用）。WorkBuddy 只是**上传/提审通道**，**能力看 AppID、不看谁发布**。`.wbapp_*.genie#appId` 是平台应用 id，**不是微信 AppID**，永不进 `project.config.json`（历史踩坑：填错 → 真机调试 `-50005`）。同一 AppID 下体验版**只有一个槽位**，开发者工具与 WorkBuddy 两条发布链会互相覆盖。
 - **禁止**：不要为了这个去照搬「微信云开发 dev/prod 双环境 + 前端只调 `wx.cloud.callFunction`」通稿——`wx.cloud` 绑你自己的 AppID，WorkBuddy 受管 AppID 里调不通、预览面板也没有 `wx.cloud`；`wx.cloud.callFunction` 确实**免域名白名单**且云函数**出网不受限**，这是「自己 AppID 那半边」的正解，只覆盖微信侧。
 - 选型结论存档（不再展开）：倾向自建 VPS（非云托管）；香港机 `112.121.168.204` 不能备案→需大陆备案域名；Stockfish 仅服务端运行，二进制/wasm 不进小程序包（GPL 不传染）。`远端引擎接入方案-chess-api.md` 的 D14「WS 为主」已不适用。
 - **`ENGINE_ENDPOINT_DEV` 已停用（2026-10-22）**：原 `http://112.121.168.204:8787` TCP 能连但服务端零响应（开发者工具 `net::ERR_EMPTY_RESPONSE`，与 Chrome 同源）；明文 HTTP + 裸 IP 是最脆一段。现 `.env` 里注释掉，develop 与 release 同走 https 域名（同机同进程，证书有效期至 2027-01-14，`/v1` 实测 200）。**不要在链路上给 develop 分叉**。
@@ -40,7 +41,7 @@
 - **403 判定已收紧**：`isEnvironmentBlock` 只把「403 + 非 JSON（网关 HTML 页）」当环境屏蔽；`403 + JSON`（服务端风控/限流）走普通回落+熔断，不再把一个会话永久钉在本地引擎上。
 
 ## 云服务接入惯例（LLM 点评）
-- 当前应用 = **`wbapp_WqKyrxADH6O75kZ4NkuiMj`**（国象AI分析，同时是发布载体），`resourceId=wbcs_aQshikXep9897QNbJ79hcs`。
+- 当前应用 = **`wbapp_a2yIza6bMcvSBfKcMQI3CP`**（黑白格大师，同时是发布载体），`resourceId=wbcs_NQXWYxRVa9K2OgVm7y6AiH`；旧 `wbapp_WqKyrxADH6O75kZ4NkuiMj` 已删除，勿再引用。
 - 凭证只在 `utils/cloud-config.js#publicConfig`（`endpoint`+`publishableKey`，随前端发布）。
 - **删应用 = 吊销该应用全部 publishableKey**（2026-10-22 实测：删「黑白格大师」后 `401 invalid_client`，
   点评在**所有**环境同时失效，表象却只是「网络连接失败」）。故前缀必须等于当前 appId，`wbpk_<appId>_…`。

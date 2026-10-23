@@ -299,18 +299,21 @@ async function main() {
   )
 
   /* -------------------------------------- 4.3 环境级屏蔽（预览/真机网关） */
-  H.section('4.3 环境级屏蔽：预览只允许 /.cloud/、真机微信 UA 被网关 403')
+  H.section('4.3 环境级屏蔽：预览沙箱路径 vs 真机网关，根因要分开')
 
   resetEnv()
   remote.setFallback(fakeLocal())
   installWx(options => { options.fail({ errMsg: 'request:fail path not allowed' }) })
   r = await remote.analyze({ fen: MIDDLE_FEN, multiPV: 3 })
   H.eq(r.source, 'local', 'path not allowed 落到本地')
-  H.eq(r.degradedFrom, 'GATEWAY_BLOCK', 'path not allowed 标记为 GATEWAY_BLOCK（不是坏响应）')
+  H.eq(r.degradedFrom, 'PREVIEW_SANDBOX',
+    'path not allowed 归为 PREVIEW_SANDBOX（宿主沙箱，不是服务故障，也不该和网关 403 混为一谈）')
   H.ok(remote.state().permanentlyBlocked, '命中环境屏蔽后标记为永久屏蔽')
+  H.eq(remote.state().blockedKind, 'PREVIEW_SANDBOX', 'state() 暴露屏蔽根因，便于诊断面板区分')
   const blockedCalls = calls().length
   r = await remote.analyze({ fen: MIDDLE_FEN, multiPV: 3 })
   H.eq(calls().length, blockedCalls, '永久屏蔽后不再发请求（不刷屏）')
+  H.eq(r.degradedFrom, 'PREVIEW_SANDBOX', '后续调用仍按同一根因标注（不会被改写成别的码）')
 
   resetEnv()
   remote.setFallback(fakeLocal())
@@ -320,6 +323,7 @@ async function main() {
   r = await remote.analyze({ fen: MIDDLE_FEN, multiPV: 3 })
   H.eq(r.source, 'local', '网关 403 + HTML 落到本地')
   H.eq(r.degradedFrom, 'GATEWAY_BLOCK', '403 + HTML「请在浏览器中打开」标记为 GATEWAY_BLOCK')
+  H.eq(remote.state().blockedKind, 'GATEWAY_BLOCK', '网关 403 的根因与预览沙箱分开')
 
   // 服务端自己回的 JSON 403（风控/限流/来源校验）不是环境屏蔽：
   // 否则一次临时风控就会把整个会话永久钉在本地引擎上，且界面上看不出区别。

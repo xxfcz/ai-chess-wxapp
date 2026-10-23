@@ -84,6 +84,9 @@ const REASON_TEXT = {
   NETWORK: '连接失败',
   ENV_NO_NETWORK: '当前环境不允许网络请求',
   BAD_RESPONSE: '返回内容异常',
+  /** 预览沙箱：宿主只放行特定路径，不是服务故障，真机/体验版不受影响 */
+  PREVIEW_SANDBOX: '预览环境不放行外部引擎',
+  /** 真机/体验版：域名没进 request 合法域名，或被前置网关 403 */
   GATEWAY_BLOCK: '后端地址不可访问',
   CIRCUIT_OPEN: '暂时不可用'
 }
@@ -101,6 +104,8 @@ let lastCode = ''
  * 这类失败不是服务端抖动，重试/熔断都没用，命中后本次会话内永久走本地，不再发请求。
  */
 let permanentlyBlocked = false
+/** 屏蔽根因：'PREVIEW_SANDBOX'（宿主路径白名单）| 'GATEWAY_BLOCK'（域名/网关） */
+let blockedKind = ''
 let blockedNotified = false
 /**
  * 引擎版本：`POST /v1` 的响应体**不带** engine 字段，只有 `GET /healthz` 给
@@ -153,6 +158,7 @@ function reset() {
   circuitOpenUntil = 0
   lastCode = ''
   permanentlyBlocked = false
+  blockedKind = ''
   blockedNotified = false
   cachedVersion = ''
   versionProbe = null
@@ -171,7 +177,9 @@ function state() {
     failStreak: failStreak,
     circuitOpen: circuitOpen(),
     lastCode: lastCode,
-    permanentlyBlocked: permanentlyBlocked
+    permanentlyBlocked: permanentlyBlocked,
+    /** 屏蔽根因：'PREVIEW_SANDBOX' | 'GATEWAY_BLOCK' | ''（未屏蔽） */
+    blockedKind: blockedKind
   }
 }
 
@@ -410,38 +418,55 @@ function reasonText(code) {
  *      返回 HTTP 403 + HTML「请在浏览器中打开」（CloudStudio 预览域名实测如此：
  *      裸 microMessenger UA 不拦，完整 iPhone MicroMessenger UA 才拦）。
  * 命中后本次会话不要再重试，否则只是把「返回内容异常」刷屏。
+ *
+ * 返回分类而不是布尔：两者的用户解释完全不同——预览沙箱是**设计行为**（换真机就好），
+ * 网关 403 / 未配白名单是**配置问题**（要改域名或白名单）。混成一句话会让人误判成引擎坏了。
+ *
+ * @returns {'PREVIEW_SANDBOX'|'GATEWAY_BLOCK'|''} 空串表示不是环境级屏蔽
  */
-function isEnvironmentBlock(err, res) {
+function blockKindOf(err, res) {
   const msg = err && String(err.errMsg || err.message || '')
-  if (/path not allowed/i.test(msg)) return true
+  // 宿主的路径白名单：只有内置预览面板会这么回（fetch 也只发到预览页自身 origin）
+  if (/path not allowed/i.test(msg)) return 'PREVIEW_SANDBOX'
   const status = res && res.statusCode
   const data = res && res.data
   // 403 要分两种：网关回的 HTML 页（环境拦死，重试无意义）才算屏蔽；
   // 服务端自己回的 JSON 403（风控/限流/来源校验）是普通失败，走回落+熔断即可。
   // 否则一次临时风控就会把整个会话永久钉在本地引擎上，排查时看不出任何变化。
   const jsonBody = typeof data === 'object' && data !== null
-  if (status === 403 && !jsonBody) return true
-  if (typeof data === 'string' && /<!doctype|请在浏览器中打开|CloudStudio/i.test(data)) return true
-  return false
+  if (status === 403 && !jsonBody) return 'GATEWAY_BLOCK'
+  if (typeof data === 'string' && /<!doctype|请在浏览器中打开|CloudStudio/i.test(data)) return 'GATEWAY_BLOCK'
+  return ''
+}
+
+function isEnvironmentBlock(err, res) {
+  return !!blockKindOf(err, res)
 }
 
 /**
- * 环境级屏蔽后的回落：走本地，并给出明确原因（不是「返回内容异常」那种吓人话）。
+ * 环境级屏蔽后的回落：走本地，并按根因给明确解释（不是「返回内容异常」那种吓人话）。
  * 同一会话只提示一次，避免多次分析刷屏。
  */
 async function asBlockedLocal(opts) {
+  const kind = blockedKind || 'GATEWAY_BLOCK'
   const local = await localAnalyze(opts)
   if (!blockedNotified) {
     blockedNotified = true
-    debugLog.push('info',
-      '[引擎] 当前后端地址 ' + endpoint + ' 在这个环境里不可访问（预览只允许 /.cloud/ 路径、' +
-      '真机被网关拦截、或地址未配进 request 合法域名）。已改用本地引擎（棋力较弱，评分仅供参考）。' +
-      '正式版请改用自有已备案域名（https）部署引擎服务。')
+    if (kind === 'PREVIEW_SANDBOX') {
+      debugLog.push('info',
+        '[引擎] 当前是内置预览面板：宿主只放行平台 /.cloud/* 路径（path not allowed），' +
+        '外部引擎地址 ' + endpoint + ' 一律被拦。已改用本地引擎（棋力较弱，评分仅供参考）。' +
+        '真机 / 体验版 / 正式版不受此限制，那里看到「云端」徽标才是正常的。')
+    } else {
+      debugLog.push('info',
+        '[引擎] 当前后端地址 ' + endpoint + ' 在这个环境里不可访问（真机被网关拦截、或地址未配进 request 合法域名）。' +
+        '已改用本地引擎（棋力较弱，评分仅供参考）。正式版请改用自有已备案域名（https）部署引擎服务。')
+    }
   }
   return Object.assign({}, local, {
     source: 'local',
-    degradedFrom: 'GATEWAY_BLOCK',
-    degradedReason: reasonText('GATEWAY_BLOCK'),
+    degradedFrom: kind,
+    degradedReason: reasonText(kind),
     degradedDetail: ''
   })
 }
@@ -514,10 +539,12 @@ async function analyze(input) {
       err = e
     }
 
-    // 环境级屏蔽（预览只允许 /.cloud/、真机微信 UA 被 CloudStudio 网关 403）：
+    // 环境级屏蔽（预览沙箱路径白名单 / 真机微信 UA 被网关 403）：
     // 不是服务端抖动，重试/熔断都没用，标记后本次会话永久走本地。
-    if (isEnvironmentBlock(err, res)) {
+    const blockKind = blockKindOf(err, res)
+    if (blockKind) {
       permanentlyBlocked = true
+      blockedKind = blockKind
       return await asBlockedLocal(opts)
     }
 
@@ -577,6 +604,7 @@ module.exports = {
   remoteParams,
   isTerminalFen,
   normalize,
+  blockKindOf,
   DEFAULT_ENDPOINT,
   REQUEST_TIMEOUT_MS,
   REASON_TEXT,

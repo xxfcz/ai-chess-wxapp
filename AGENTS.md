@@ -15,11 +15,11 @@
   远端不可用时**自动回落端上**，界面必须标注实际来源（见 §4.1）。
 - 云服务只用于「AI 教练点评」（流式 LLM），走云服务内置的大模型网关，**免 API Key**。
 
-云服务应用 id：`wbapp_WqKyrxADH6O75kZ4NkuiMj`（appType=miniprogram，名称「国象AI分析」，同时是发布载体）。
+云服务应用 id：`wbapp_a2yIza6bMcvSBfKcMQI3CP`（appType=miniprogram，名称「黑白格大师」，同时是发布载体）。
 `utils/cloud-config.js#publishableKey` 的前缀**必须**等于当前应用 id（`wbpk_<appId>_…`），
 **应用被删除或重建会直接吊销旧凭据**（服务端回 `401 invalid_client`），此时所有 AI 点评都会失败，
 必须重新开通云服务换 key——这条不核对，就会出现「界面一切正常、点评永远出不来」。
-历史应用（已删除，勿再引用）：`wbapp_XuxCaYOHVeBjdrJ4UfSMX6`（黑白格大师）、`wbapp_Q0BvUcC34QxiYVHs0aFeay`。
+历史应用（已删除，勿再引用）：`wbapp_WqKyrxADH6O75kZ4NkuiMj`（国象AI分析）、`wbapp_XuxCaYOHVeBjdrJ4UfSMX6`（黑白格大师·旧）、`wbapp_Q0BvUcC34QxiYVHs0aFeay`。
 
 ## 2. 技术栈与运行环境
 

@@ -829,7 +829,8 @@ Page({
     }
     if (this._engineDegraded) return
     this._engineDegraded = true
-    device.toast('云端引擎不可用，已改用本地引擎')
+    // 短提示由 analysis-service 按根因给（预览沙箱 ≠ 服务故障，不能都弹「云端不可用」）
+    device.toast((src && src.toast) || '云端引擎不可用，已改用本地引擎')
     debugLog.push('warn', '[引擎] 已降级到本地 · ' +
       ((result && result.degradedFrom) || '') +
       (result && result.degradedReason ? ' · ' + result.degradedReason : '') +
